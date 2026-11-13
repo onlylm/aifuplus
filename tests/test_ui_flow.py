@@ -50,7 +50,7 @@ def test_guest_buys_without_any_account_main_flow(env):
     r = c.post("/product/%d/confirm" % pid, data={"quantity": "1", "region": "PH", "auth_json": AUTH, "lookup_email": "buyer@example.com",
                                                   "_csrf": env.csrf(c)})
     body = r.data.decode()
-    assert r.status_code == 200 and "确认并去付款" in body and "菲律宾" in body and "b•••••@example.com" in body
+    assert r.status_code == 200 and "确认并去付款" in body and "菲律宾" in body and "待充值账号" in body and "buyer@example.com" in body
     assert "AT-SECRET-TOKEN" not in visible(body)
     assert env.core.conn.execute("SELECT COUNT(*) FROM orders").fetchone()[0] == 0        # confirm does not create an order
     r = c.post("/product/%d/buy" % pid, data={"quantity": "1", "region": "PH", "auth_json": AUTH, "lookup_email": "buyer@example.com",

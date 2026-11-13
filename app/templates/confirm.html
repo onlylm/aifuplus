@@ -6,11 +6,12 @@
 <div class="card" style="max-width:640px"><h1 style="font-size:30px;margin-bottom:6px">确认订单</h1><p class="muted" style="margin:0 0 18px">请核对下面的内容，没问题就去付款。</p>
 <dl class="facts">
   <dt>商品</dt><dd>{{ p['name'] }}</dd>
-  {% if rech %}<dt>充值地区</dt><dd>{{ prev['region']|region_name }}</dd><dt>充值账号</dt><dd>{{ prev['account_email']|mask_email }}</dd>{% else %}<dt>数量</dt><dd>{{ prev['quantity'] }} 张</dd>{% endif %}
+  {% if rech %}<dt>充值地区</dt><dd>{{ prev['region']|region_name }}</dd><dt>待充值账号</dt><dd class="mono">{{ prev['account_email'] }}</dd>{% else %}<dt>数量</dt><dd>{{ prev['quantity'] }} 张</dd>{% endif %}
   <dt>查单邮箱</dt><dd>{{ prev['lookup_email'] }}</dd>
   <dt>应付金额</dt><dd><span class="price" style="font-size:28px"><small>¥</small>{{ prev['amount_cents']|yuan }}</span></dd></dl>
 <div class="notice" style="margin-top:20px;border-left-color:var(--brand)">{% if rech %}确认后会生成支付宝付款二维码。请确认账号是你要充值的账号，付款后将自动充值。{% else %}确认后会生成支付宝付款二维码，付款后卡密立即显示。{% endif %}</div>
 <form method="post" action="{{ url_for('web.buy', pid=p['id']) }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+  <label class="check" style="display:flex;gap:10px;align-items:flex-start;font-weight:700;margin:6px 0 14px"><input type="checkbox" required style="width:22px;height:22px;margin-top:2px;accent-color:var(--brand)"><span>我已确认充值账号、套餐地区和付款金额无误</span></label>
   {% for k in ('quantity','region','auth_json','lookup_email','contact') %}<input type="hidden" name="{{ k }}" value="{{ form.get(k,'') }}">{% endfor %}
   <div class="cta"><button class="btn">确认并去付款</button><a class="btn ghost" href="{{ url_for('web.product', pid=p['id']) }}">返回修改</a></div></form></div>
 {% endblock %}
