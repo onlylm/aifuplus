@@ -1,0 +1,32 @@
+{% extends "admin/base.html" %}{% block title %}支付宝收款 · 管理后台{% endblock %}
+{% block body %}
+<div class="page-head"><div><h1>支付宝收款</h1><p>买家通过支付宝扫码付款，钱直接进入你的支付宝商户账户。</p></div></div>
+<div class="grid" style="margin-bottom:20px">
+  <div class="stat"><div class="k">收款状态</div><div class="v"><span class="dot {{ 'ok' if cfg['enabled'] else 'bad' }}"></span>{{ '已启用' if cfg['enabled'] else '未启用' }}</div></div>
+  <div class="stat"><div class="k">当前环境</div><div class="v">{{ '沙箱测试' if cfg['mode']=='sandbox' else '正式收款' }}</div><div class="h">{{ '沙箱不会真实扣款' if cfg['mode']=='sandbox' else '买家付款会真实到账' }}</div></div>
+  <div class="stat"><div class="k">应用私钥</div><div class="v"><span class="dot {{ 'ok' if cfg['has_private_key'] else 'bad' }}"></span>{{ '已保存' if cfg['has_private_key'] else '未保存' }}</div><div class="h">保存后不会再显示</div></div>
+  <div class="stat"><div class="k">付款通知</div><div class="v"><span class="dot {{ 'ok' if cfg['notify_url'] else 'warn' }}"></span>{{ '已设置地址' if cfg['notify_url'] else '未设置地址' }}</div><div class="h">{{ '支付宝会主动通知本站' if cfg['notify_url'] else '将靠系统主动查单确认付款' }}</div></div>
+</div>
+<form method="post"><input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+<section class="c"><h2>① 支付宝应用信息</h2><p class="sub">在支付宝开放平台，打开你的应用详情页就能找到这些内容。</p>
+<label class="f">使用环境</label><select class="t" name="mode"><option value="sandbox" {{ 'selected' if cfg['mode']=='sandbox' }}>沙箱测试（不真实扣款，先用它联调）</option><option value="production" {{ 'selected' if cfg['mode']=='production' }}>正式收款（真实扣款）</option></select>
+<label class="f" for="app_id">应用 App ID</label><input class="t" id="app_id" name="app_id" value="{{ cfg['app_id'] }}" inputmode="numeric">
+<label class="f" for="pid">商户编号（PID，2088 开头）</label><input class="t" id="pid" name="merchant_pid" value="{{ cfg['merchant_pid'] }}" inputmode="numeric">
+<p class="help">本站用它核对「付款确实是打给你的」，防止伪造的付款通知。</p></section>
+<section class="c"><h2>② 密钥</h2><p class="sub">密钥只保存在服务器上，加密存放，保存后不会再显示出来。</p>
+<label class="f" for="pk">应用私钥 {% if cfg['has_private_key'] %}<span class="chip ok">已保存（指纹 {{ cfg['fingerprint'] }}）</span>{% endif %}</label>
+<textarea class="t" id="pk" name="private_key" autocomplete="off" placeholder="{{ '已保存。不需要修改的话，请保持为空。' if cfg['has_private_key'] else '粘贴你生成的应用私钥' }}"></textarea>
+<label class="f" for="pub">支付宝公钥</label><textarea class="t" id="pub" name="alipay_public_key">{{ cfg['alipay_public_key'] }}</textarea>
+<p class="help">注意：这里要填「支付宝公钥」，不是你自己上传的「应用公钥」。两个填反了，付款会验签失败。</p></section>
+<section class="c"><h2>③ 付款通知</h2><p class="sub">买家付款后，支付宝会通知本站，订单才会自动变成「已付款」。</p>
+<label class="f" for="base">本站的公网网址</label><input class="t" id="base" name="public_base_url" value="{{ cfg['public_base_url'] }}" placeholder="例如 https://你的域名.com">
+{% if cfg['notify_url'] %}<p class="help">系统会让支付宝把通知发到：<code>{{ cfg['notify_url'] }}</code></p>{% else %}<p class="help">不填也能用：系统会每隔几秒主动向支付宝查询付款结果，只是不如通知及时。</p>{% endif %}
+<label class="f" for="to">买家付款时限</label><select class="t" id="to" name="order_timeout_minutes">{% for m in (10,15,20,30,60) %}<option value="{{ m }}" {{ 'selected' if cfg['order_timeout_minutes']==m }}>{{ m }} 分钟</option>{% endfor %}</select>
+<p class="help">超过时限没付款，订单自动关闭，占用的卡密库存会释放。</p></section>
+<section class="c"><h2>④ 启用收款</h2>
+<label class="check"><input type="checkbox" name="enabled" value="1" {{ 'checked' if cfg['enabled'] }}><span>启用支付宝收款<br><span class="help" style="font-weight:400">关闭后买家无法下新订单；已经付款的订单仍会正常处理。</span></span></label>
+<div class="actions"><button class="btn primary">保存设置</button></div></section>
+</form>
+<form method="post" action="{{ url_for('admin.alipay_test') }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+<section class="c"><h2>测试一下</h2><p class="sub">保存后点一下，系统会向支付宝发起一次只读检查（不会产生订单、不扣款），确认密钥填对了。</p><button class="btn">测试支付宝配置</button></section></form>
+{% endblock %}

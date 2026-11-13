@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}查询订单 · {{ site['site_name'] }}{% endblock %}
+{% block body %}
+<div style="max-width:560px"><h1 style="font-size:32px;margin-bottom:6px">查询订单</h1><p class="muted">输入订单号和下单时填写的邮箱，就能查看订单进度。无需创建账号。</p>
+<form class="card" method="post" style="margin-top:18px"><input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+  <label class="f" for="no" style="margin-top:0">订单号</label><input class="t mono" id="no" name="order_no" required autocomplete="off" placeholder="A2611…" style="text-transform:uppercase">
+  <label class="f" for="em">下单邮箱</label><input class="t" id="em" name="email" type="email" required autocomplete="email" placeholder="下单时填写的邮箱">
+  <p class="hint">为了保护隐私，需要同时填写订单号和邮箱。</p>
+  <div style="margin-top:16px"><button class="btn block">查询</button></div></form>
+<p class="hint" style="margin-top:14px">找不到订单号？它在付款页和订单页的顶部。还是找不到，请<a href="{{ url_for('web.help_page') }}#support">联系客服</a>。卡密类订单出于安全考虑，只能用下单时保存的专属链接查看卡密。</p></div>
+{% if rows %}<section class="section"><h2 style="font-size:24px;margin-bottom:12px">我的订单</h2>
+{% for r in rows %}<div class="list-row"><div><b>{{ r['product_name'] }}</b>{% if r['quantity']>1 %} × {{ r['quantity'] }}{% endif %}<div class="muted order-no">{{ r['order_no'] }}</div></div>
+  <span class="badge {{ 'ok' if r['fstatus']=='delivered' else 'warn' }}">{{ r['payment_status']|pay_text if r['payment_status']!='paid' else r['fstatus']|ful_text }}</span>
+  <a class="btn ghost sm" href="{{ url_for('web.order', order_no=r['order_no']) }}">查看</a></div>{% endfor %}</section>{% endif %}
+{% endblock %}

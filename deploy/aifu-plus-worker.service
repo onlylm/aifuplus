@@ -1,0 +1,18 @@
+[Unit]
+Description=aifu.plus background worker
+After=network-online.target aifu-plus.service
+Wants=network-online.target
+Requires=aifu-plus.service
+
+[Service]
+Type=simple
+User=aifu
+Group=aifu
+WorkingDirectory=/opt/aifu-plus
+EnvironmentFile=/etc/aifu-plus.env
+ExecStart=/opt/aifu-plus/.venv/bin/python -m app.worker
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,21 @@
+[Unit]
+Description=aifu.plus web application
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=aifu
+Group=www-data
+WorkingDirectory=/opt/aifu-plus
+EnvironmentFile=/etc/aifu-plus.env
+RuntimeDirectory=aifu-plus
+RuntimeDirectoryMode=0750
+UMask=0007
+ExecStartPre=/opt/aifu-plus/.venv/bin/python -m app.migrate
+ExecStart=/opt/aifu-plus/.venv/bin/gunicorn --workers 2 --threads 4 --timeout 60 --bind unix:/run/aifu-plus/app.sock --access-logfile - --error-logfile - app:create_app()
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

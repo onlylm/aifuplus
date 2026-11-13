@@ -1,0 +1,15 @@
+.venv/
+instance/
+__pycache__/
+*.pyc
+.pytest_cache/
+.deploy-keys/
+.claude/
+.DS_Store
+.env
+.env.*
+*.db
+*.db-shm
+*.db-wal
+*.pem
+*.key

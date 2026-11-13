@@ -1,0 +1,13 @@
+{% extends "admin/base.html" %}{% block title %}创建卡密商品 · 管理后台{% endblock %}
+{% block body %}
+<div class="page-head"><div><h1>创建卡密商品</h1><p>卡密商品：你提前导入卡密，买家付款后立刻在订单页看到卡密。ChatGPT 账号充值套餐不需要在这里创建，它们在「商品与定价」页管理。</p></div></div>
+<ol class="steps"><li class="on"><b>1</b>设置销售内容</li><li><b>2</b>导入卡密</li></ol>
+<form method="post"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input type="hidden" name="type" value="card">
+<section class="c"><h2>设置销售内容</h2><p class="sub">这些内容会直接显示给买家。</p>
+<label class="f" for="name">商品名称</label><input class="t" id="name" name="name" maxlength="60" value="{{ form.get('name','') }}" required>
+<label class="f" for="price">销售价格（元）</label><input class="t" id="price" name="price" inputmode="decimal" placeholder="例如 128" value="{{ form.get('price','') }}" required style="max-width:200px">
+<label class="f" for="desc">商品介绍</label><textarea class="t" id="desc" name="description" placeholder="说明卡密怎么兑换、有什么注意事项">{{ form.get('description','') }}</textarea>
+<label class="f" for="mx">每单最多买几张</label><input class="t" id="mx" name="max_per_order" type="number" min="1" max="100" value="{{ form.get('max_per_order','5') }}" style="max-width:140px">
+<label class="check"><input type="checkbox" name="enabled" value="1"><span>创建后立即上架<br><span class="help" style="font-weight:400">没有导入卡密时，买家会看到「已售罄」。建议先创建、导入卡密，再上架。</span></span></label>
+<div class="actions"><button class="btn primary">创建商品</button></div></section></form>
+{% endblock %}

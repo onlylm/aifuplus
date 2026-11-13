@@ -1,0 +1,4 @@
+{% macro flow(cur, kind='recharge') %}
+{% set labels = ['选择商品','填写资料','确认订单','支付宝付款','自动充值' if kind=='recharge' else '自动发货','查看结果'] %}
+<ol class="flow" aria-label="购买流程">{% for l in labels %}<li class="{{ 'on' if loop.index==cur else ('done' if loop.index<cur) }}"><b>{{ '✓' if loop.index<cur else loop.index }}</b>{{ l }}</li>{% endfor %}</ol>
+{% endmacro %}

@@ -1,0 +1,53 @@
+{% extends "admin/base.html" %}{% block title %}订单详情 · 管理后台{% endblock %}
+{% block body %}
+<div class="page-head"><div><h1>{{ o['product_name'] }}{% if o['quantity']>1 %} × {{ o['quantity'] }}{% endif %}</h1><p>订单创建于 {{ o['created_at']|dt }}</p></div>
+  <a class="btn" href="{{ url_for('admin.orders_list') }}">返回订单列表</a></div>
+
+<section class="c" style="border-left:6px solid var(--{{ {'ok':'ok','bad':'err','warn':'warn','wait':'warn','off':'ink2'}[tone] }})">
+  <div class="tags" style="margin-bottom:8px"><span class="chip {{ o['payment_status']|pay_tone }}">{{ o['payment_status']|pay_text }}</span>
+    {% if o['payment_status']=='paid' %}<span class="chip {{ f['status']|ful_tone }}">{{ f['status']|ful_text }}</span>{% endif %}
+    {% if o['late_payment'] %}<span class="chip warn">迟到付款：订单关闭后才收到付款</span>{% endif %}</div>
+  <h2 style="font-size:19px">{{ headline }}</h2>
+  {% if needs_action %}<form method="post" action="{{ url_for('admin.order_action', oid=o['id']) }}" style="margin-top:14px"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input type="hidden" name="action" value="retry"><button class="btn primary">{{ retry_label }}</button>
+    <span class="help" style="margin-left:10px">不会重复发货或重复扣款，系统会先核对再处理。</span></form>{% endif %}
+</section>
+
+<div class="grid-3">
+<section class="c" style="margin:0"><h3 style="margin-bottom:10px">买家信息</h3><dl class="kv">
+  <dt>查单邮箱</dt><dd>{{ o['lookup_email'] or '-' }}</dd>
+  {% if o['product_type']=='api_recharge' %}<dt>充值账号</dt><dd>{{ o['recharge_email'] }}</dd><dt>充值地区</dt><dd>{{ o['recharge_region']|region_name }}</dd>{% endif %}
+  <dt>联系方式</dt><dd>{{ o['contact'] or '未填写' }}</dd></dl></section>
+<section class="c" style="margin:0"><h3 style="margin-bottom:10px">付款情况</h3><dl class="kv">
+  <dt>应付金额</dt><dd>¥{{ o['amount_cents']|yuan }}</dd>
+  <dt>支付结果</dt><dd>{{ o['payment_status']|pay_text }}</dd>
+  {% if pay %}<dt>付款时间</dt><dd>{{ pay['created_at']|dt }}</dd><dt>支付宝交易号</dt><dd><code>{{ pay['trade_no'] }}</code></dd>{% endif %}</dl>
+  {% if o['payment_status']!='paid' %}<form method="post" action="{{ url_for('admin.order_action', oid=o['id']) }}" style="margin-top:12px"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input type="hidden" name="action" value="requery"><button class="btn sm">向支付宝核对付款</button></form>{% endif %}</section>
+<section class="c" style="margin:0"><h3 style="margin-bottom:10px">{{ '充值进度' if o['product_type']=='api_recharge' else '发货情况' }}</h3><dl class="kv">
+  <dt>当前状态</dt><dd><span class="chip {{ f['status']|ful_tone }}">{{ f['status']|ful_text }}</span></dd>
+  {% if o['product_type']=='api_recharge' %}<dt>上游进度</dt><dd>{{ f['upstream_status']|up_text }}</dd>{% endif %}
+  {% if cards %}<dt>卡密</dt><dd>{% for c in cards %}<code>{{ c['mask'] }}</code> {% endfor %}</dd>{% endif %}
+  {% if f['delivered_at'] %}<dt>完成时间</dt><dd>{{ f['delivered_at']|dt }}</dd>{% endif %}</dl></section>
+</div>
+
+{% if o['variant_id'] %}<section class="c" style="margin-top:20px"><h2>下单时的价格与成本</h2><p class="sub">这些数字在下单时就固定了，之后成本、汇率或售价再变化，都不会影响这笔订单。</p>
+<dl class="kv"><dt>套餐 / 地区</dt><dd>{{ o['snap_plan_label'] }} · {{ o['snap_region_label'] }}</dd>
+  <dt>套餐成本</dt><dd>¥{{ o['snap_package_cost_cny']|yuan }}（{{ '采用上游参考成本' if o['snap_cost_source']=='upstream' else '人工成本' }}{% if o['snap_fx_rate'] %}，汇率 {{ o['snap_fx_rate']|rate }}{% endif %}）</dd>
+  <dt>其他成本</dt><dd>¥{{ o['snap_other_cost_cny']|yuan }}</dd><dt>总成本</dt><dd>¥{{ o['snap_total_cost_cny']|yuan }}</dd>
+  <dt>加价方式</dt><dd>{{ '按成本百分比加价' if o['snap_pricing_mode']=='percentage' else '固定利润' }}</dd>
+  <dt>成交价</dt><dd>¥{{ o['amount_cents']|yuan }}</dd><dt>预计利润</dt><dd>¥{{ o['snap_expected_profit_cny']|yuan }}</dd></dl></section>{% endif %}
+
+<section class="c" style="margin-top:20px"><h2>处理记录</h2><ul class="timeline">
+{% for e in events %}<li><b>{{ e['kind']|event_text }}</b>　{{ e['message'] }}<br><small>{{ e['created_at']|dt }}</small>
+  {% if e['detail'] %}<details class="adv" style="margin:6px 0 0"><summary>技术详情</summary><div class="body"><code>{{ e['detail'] }}</code></div></details>{% endif %}</li>{% endfor %}</ul></section>
+
+{% if can_manual %}<section class="c"><h2>已经在上游核对过？</h2><p class="sub">只有你在上游平台亲自确认过这笔充值的真实结果，才使用下面的按钮。</p>
+<details class="adv"><summary>人工标记结果</summary><div class="body"><form method="post" action="{{ url_for('admin.order_action', oid=o['id']) }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+<label class="check"><input type="checkbox" name="confirm" value="yes"><span>我已在上游核对过这笔订单的真实结果</span></label>
+<div class="actions"><button class="btn" name="action" value="mark_success">标记为「已充值」</button><button class="btn danger" name="action" value="mark_failed">标记为「充值失败」</button></div></form></div></details></section>{% endif %}
+
+<details class="adv"><summary>技术详情（给技术支持看）</summary><div class="body"><dl class="kv">
+  <dt>订单号</dt><dd><code>{{ o['order_no'] }}</code></dd>
+  {% if o['product_type']=='api_recharge' %}<dt>上游订单编号</dt><dd><code>{{ f['upstream_client_order_id'] or '-' }}</code></dd><dt>上游任务号</dt><dd><code>{{ f['upstream_task_id'] or '-' }}</code></dd>
+  <dt>上游原始状态</dt><dd><code>{{ f['upstream_status'] or '-' }}</code></dd><dt>套餐标识</dt><dd><code>{{ o['recharge_plan_id'] }}</code></dd>{% endif %}
+  <dt>错误代码</dt><dd><code>{{ f['reason_code'] or '-' }} {{ f['upstream_error_code'] }}</code></dd><dt>自动尝试次数</dt><dd>{{ f['attempts'] }}</dd></dl></div></details>
+{% endblock %}

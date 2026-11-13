@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block title %}{{ site['site_name'] }}{% endblock %}</title>
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="stylesheet" href="{{ asset_url('fonts.css') }}">
+<link rel="stylesheet" href="{{ asset_url('shop.css') }}">
+<script src="{{ asset_url('shop.js') }}" defer></script>
+</head><body>
+<header class="site-head"><div class="wrap">
+  <a class="brand" href="{{ url_for('web.index') }}">{{ site['site_name'] }}</a>
+  <nav class="nav" aria-label="主导航"><a href="{{ url_for('web.index') }}#plans">套餐</a><a href="{{ url_for('web.help_page') }}">帮助</a></nav>
+  <div class="head-r">
+    <a class="btn ghost sm" href="{{ url_for('web.lookup') }}">查询订单</a>
+    <a class="btn dark sm" href="{{ url_for('web.help_page') }}#support">联系客服</a>
+    <button class="icon-btn" type="button" id="theme" aria-label="切换明暗主题" title="切换明暗主题">◐</button>
+    <details class="menu"><summary class="icon-btn" aria-label="菜单">☰</summary><div class="pop">
+      <a href="{{ url_for('web.index') }}#plans">套餐</a><a href="{{ url_for('web.help_page') }}">帮助</a><a href="{{ url_for('web.lookup') }}">查询订单</a><a href="{{ url_for('web.help_page') }}#support">联系客服</a></div></details>
+  </div>
+</div></header>
+<main class="wrap page">
+{% for m in get_flashed_messages() %}<div class="notice" role="alert">{{ m }}</div>{% endfor %}
+{% block body %}{% endblock %}
+</main>
+<footer class="site-foot"><div class="wrap"><div>{{ site['disclaimer'] }}</div>
+  <div class="links"><a href="{{ url_for('web.help_page') }}">帮助</a>{% if site['terms_text'] %}<a href="{{ url_for('web.terms') }}">服务条款</a>{% endif %}{% if site['privacy_text'] %}<a href="{{ url_for('web.privacy') }}">隐私说明</a>{% endif %}</div></div></footer>
+</body></html>

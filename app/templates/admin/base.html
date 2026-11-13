@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block title %}管理后台{% endblock %}</title>
+<link rel="stylesheet" href="{{ asset_url('fonts.css') }}">
+<link rel="stylesheet" href="{{ asset_url('admin.css') }}">
+</head><body>
+{% set ep = request.endpoint %}
+<header class="top"><div class="in">
+  <a class="brand" href="{{ url_for('admin.dashboard') }}">{{ site['site_name'] }} 后台</a>
+  <nav>
+    <a href="{{ url_for('admin.dashboard') }}" class="{{ 'on' if ep=='admin.dashboard' }}">首页</a>
+    <a href="{{ url_for('admin.orders_list') }}" class="{{ 'on' if ep in ('admin.orders_list','admin.order_detail') }}">订单</a>
+    <a href="{{ url_for('admin.products') }}" class="{{ 'on' if ep in ('admin.products','admin.product_edit','admin.cards') }}">商品与定价</a>
+    <a href="{{ url_for('admin.upstream_config') }}" class="{{ 'on' if ep and ep.startswith('admin.upstream') }}">上游充值</a>
+    <a href="{{ url_for('admin.alipay_config') }}" class="{{ 'on' if ep=='admin.alipay_config' }}">支付宝收款</a>
+    <a href="{{ url_for('admin.site_config') }}" class="{{ 'on' if ep=='admin.site_config' }}">网站内容</a>
+  </nav>
+  <div class="who"><a href="{{ url_for('web.index') }}" target="_blank" rel="noopener">查看前台</a>
+    <form class="inline" method="post" action="{{ url_for('web.logout') }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><button class="btn sm">退出</button></form></div>
+</div></header>
+<main class="wrap">
+{% for m in get_flashed_messages() %}<div class="notice" role="status">{{ m }}</div>{% endfor %}
+{% block body %}{% endblock %}
+</main></body></html>

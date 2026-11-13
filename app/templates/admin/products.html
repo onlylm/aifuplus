@@ -1,0 +1,101 @@
+{% extends "admin/base.html" %}{% block title %}商品与定价 · 管理后台{% endblock %}
+{% block body %}
+<div class="page-head"><div><h1>商品与定价</h1><p>这里管理 ChatGPT 四种套餐在各地区的售价和上下架，以及卡密商品。售价由「成本 + 加价」自动算出，买家看到的价格以这里为准。</p></div>
+  <a class="btn" href="{{ url_for('admin.product_edit') }}">创建卡密商品</a></div>
+
+{% for key in ('upstream','fx') %}{% set st = stale[key] %}{% if st['level'] in ('warn','err') %}
+<div class="bar {{ st['level'] }}"><b>{{ '⚠ 需要尽快处理' if st['level']=='err' else '提醒' }}</b>{{ st['text'] }} 已有的价格不受影响，但可能和最新成本有出入。</div>{% endif %}{% endfor %}
+{% if fx['pending'] %}<div class="bar err"><b>汇率异常，等待确认</b>{{ fx['pending_detail'] }}
+  <form method="post" action="{{ url_for('admin.pricing_confirm_fx') }}" style="margin-top:8px"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><button class="btn sm primary">确认新汇率</button></form></div>{% endif %}
+{% if not upstream_ready %}<div class="bar warn"><b>还没有连接上游</b>先到「上游充值」页保存密钥，才能同步各地区的参考成本。你也可以先手动填写成本。</div>{% endif %}
+
+<section class="c"><h2>汇率与成本同步</h2><p class="sub">系统每 30 分钟自动同步一次；也可以现在手动同步。同步失败时会一直使用上一次的有效数据。</p>
+<div class="grid">
+  <div class="stat"><div class="k">自动参考汇率（1 美元 = 人民币）</div><div class="v">{{ fx['auto']|rate if fx['auto'] else '暂无' }}</div><div class="h">{{ ('来源 ' ~ fx['source'] ~ ' · ' ~ (fx['auto_at']|dt)) if fx['auto_at'] else '还没有成功同步过' }}</div></div>
+  <div class="stat"><div class="k">实际计价汇率</div><div class="v">{{ fx['effective']|rate if fx['effective'] else '暂无' }}</div>
+    <div class="h">{% if fx['manual_on'] %}<span class="chip warn">人工覆盖中</span>{% else %}自动汇率{% if fx['safety_bp'] %} + 安全系数 {{ '%g'|format(fx['safety_bp']/100) }}%{% endif %}{% endif %}</div></div>
+  <div class="stat"><div class="k">上游成本最近同步</div><div class="v" style="font-size:20px">{{ fx['raw']['upstream_last_ok_at']|dt if fx['raw']['upstream_last_ok_at'] else '还没有同步' }}</div>
+    <div class="h">{{ fx['raw']['upstream_last_error'] or '同步正常' }}</div></div>
+  <div class="stat"><div class="k">汇率最近同步</div><div class="v" style="font-size:20px">{{ fx['auto_at']|dt if fx['auto_at'] else '还没有同步' }}</div><div class="h">{{ fx['error'] or '同步正常' }}</div></div>
+</div>
+<div class="actions" style="margin-top:16px">
+  <form method="post" action="{{ url_for('admin.pricing_sync_now') }}" class="inline"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><button class="btn primary">立即同步</button></form>
+  <form method="post" action="{{ url_for('admin.pricing_recalc') }}" class="inline"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><button class="btn">重新计算售价</button></form></div>
+<details class="adv"><summary>汇率与保护设置</summary><div class="body"><form method="post" action="{{ url_for('admin.pricing_settings') }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+  <label class="f">汇率来源</label><select class="t" name="fx_mode" style="max-width:320px"><option value="auto" {{ 'selected' if fx['raw']['fx_mode']=='auto' }}>自动同步汇率（推荐）</option><option value="manual" {{ 'selected' if fx['raw']['fx_mode']=='manual' }}>人工覆盖汇率</option></select>
+  <label class="f">人工汇率（1 美元兑多少人民币，仅「人工覆盖」时使用）</label><input class="t" name="fx_manual" value="{{ fx['manual']|rate if fx['manual'] else '' }}" inputmode="decimal" placeholder="例如 7.20" style="max-width:200px">
+  <label class="f">汇率安全系数（%，自动汇率会再加上这个比例，用来抵御汇率波动）</label><input class="t" name="safety" value="{{ '%g'|format(fx['safety_bp']/100) }}" inputmode="decimal" style="max-width:200px">
+  <label class="f">价格异常阈值（%，成本或汇率变化超过它就暂停自动调价）</label><input class="t" name="anomaly" value="{{ '%g'|format(fx['anomaly_bp']/100) }}" inputmode="decimal" style="max-width:200px">
+  <label class="f">新地区的默认加价（%）</label><input class="t" name="default_markup" value="{{ '%g'|format(fx['default_markup_bp']/100) }}" inputmode="decimal" style="max-width:200px">
+  <div class="actions" style="margin-top:14px"><button class="btn primary">保存设置</button></div></form></div></details></section>
+
+{% for pc in cards %}
+<section class="c" id="plan-{{ pc['plan_id'] }}">
+  <div class="plan-head"><div><h2>{{ pc['label'] }}</h2><p class="help" style="margin-top:2px">{{ pc['desc'] }}</p></div>
+    <div class="tags">{% if pc['anomalies'] %}<span class="chip bad">{{ pc['anomalies'] }} 个价格异常，等待确认</span>{% elif pc['total'] %}<span class="chip ok">价格正常</span>{% endif %}</div></div>
+  <div class="metrics">
+    <div><div class="k">已上架地区</div><div class="v">{{ pc['live'] }} / {{ pc['total'] }}</div></div>
+    <div><div class="k">最低售价</div><div class="v">{{ ('¥' ~ (pc['min_price']|yuan)) if pc['min_price'] else '暂无' }}</div></div>
+    <div><div class="k">最近成本同步</div><div class="v">{{ pc['last_sync']|dt if pc['last_sync'] else '还没有同步' }}</div></div>
+    <div><div class="k">当前定价策略</div><div class="v">{{ pc['strategy'] }}</div></div></div>
+  {% if pc['total'] %}
+  <details class="adv" {{ 'open' if pc['anomalies'] }}><summary>展开地区管理</summary><div class="body">
+    <form method="post" action="{{ url_for('admin.plan_bulk', plan_id=pc['plan_id']) }}" id="bulk-{{ pc['plan_id'] }}" class="bulk"><input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <div class="g"><label>对勾选的地区</label><div class="actions"><button class="btn sm" name="action" value="enable">批量上架</button>
+        <button class="btn sm danger" name="action" value="disable" onclick="return confirm('关闭后，新用户将无法选择这些地区，历史订单不受影响。确定关闭吗？')">批量关闭</button></div></div>
+      <div class="g"><label>数值（百分比 或 元）</label><input class="t" name="value" inputmode="decimal" placeholder="例如 20"></div>
+      <div class="g"><label>售价取整（可不选）</label><select class="t" name="rounding"><option value="">保持各地区原设置</option>{% for k,l in rounding_text.items() %}<option value="{{ k }}">{{ l }}</option>{% endfor %}</select></div>
+      <div class="g"><label>整套餐统一设置（不勾选则对全部地区）</label><div class="actions"><button class="btn sm" name="action" value="markup">统一百分比加价</button><button class="btn sm" name="action" value="profit">统一固定利润</button><button class="btn sm" name="action" value="other_cost">批量设置其他成本</button></div></div>
+    </form>
+    <div class="vgrid">
+    {% for v in pc['variants'] %}
+      <div class="vc {{ 'live' if v['enabled'] and v['can_sell'] }} {{ 'alert' if v['anomaly'] }}">
+        <div class="hd"><label><input type="checkbox" name="variant_ids" value="{{ v['id'] }}" form="bulk-{{ pc['plan_id'] }}">{{ v['region_label'] }}{% if v['region_currency'] %}<span class="help" style="font-weight:400">（{{ v['region_currency'] }}）</span>{% endif %}</label>
+          <span class="price-big">{{ ('¥' ~ (v['sale_price_cny']|yuan)) if v['can_sell'] else '未定价' }}</span></div>
+        <form method="post" action="{{ url_for('admin.variant_toggle', vid=v['id']) }}" class="sw"><input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+          <span class="state {{ 'on' if v['enabled'] }}">{{ '销售中' if v['enabled'] else '未销售' }}</span>
+          {% if v['enabled'] %}<input type="hidden" name="enabled" value="0"><button class="btn sm danger" onclick="return confirm('关闭后，新用户将无法选择该地区，历史订单不受影响。确定关闭吗？')">关闭销售</button>
+          {% else %}<input type="hidden" name="enabled" value="1"><button class="btn sm primary" {{ 'disabled' if not v['can_sell'] }}>上架销售</button>{% endif %}</form>
+        {% if v['enabled'] %}<p class="help" style="margin:0">关闭后，新用户将无法选择该地区，历史订单不受影响。</p>{% endif %}
+        {% if not v['can_sell'] %}<p class="help" style="margin:0;color:var(--err)">{{ v['cost_note'] }}。填写成本后才能上架。</p>{% endif %}
+        {% if not v['upstream_available'] %}<p class="help" style="margin:0;color:var(--err)">上游目前已不提供这个地区，建议关闭销售。</p>{% endif %}
+        {% if v['anomaly'] %}<div class="bar err" style="margin:0"><b>{{ v['anomaly'] }}</b>{{ v['anomaly_detail'] }}
+          <form method="post" action="{{ url_for('admin.variant_confirm', vid=v['id']) }}" style="margin-top:8px"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><button class="btn sm primary">确认异常价格</button></form></div>{% endif %}
+        <dl class="kv">
+          <dt>上游参考成本</dt><dd>{{ ('$' ~ v['upstream_usd_text']) if v['upstream_usd_text'] else '上游未提供' }}{% if v['upstream_latest_null'] and v['upstream_usd_text'] %} <span class="help">（最近一次未返回，沿用旧值）</span>{% endif %}</dd>
+          <dt>套餐人民币成本</dt><dd>{{ ('¥' ~ (v['effective_package_cost_cny']|yuan)) if v['effective_package_cost_cny'] is not none else '-' }}</dd>
+          <dt>其他成本</dt><dd>¥{{ v['other_cost_cny']|yuan }}</dd>
+          <dt>总成本</dt><dd>{{ ('¥' ~ (v['total_cost_cny']|yuan)) if v['total_cost_cny'] is not none else '-' }}</dd>
+          <dt>加价方式</dt><dd>{{ v['strategy'] }} · {{ rounding_text[v['rounding']] }}</dd>
+          <dt>预计利润</dt><dd>{{ ('¥' ~ (v['profit']|yuan)) if v['profit'] is not none else '-' }}</dd>
+          <dt>成本来源</dt><dd>{{ v['cost_note'] }}</dd>
+          <dt>同步状态</dt><dd>{{ ('最近同步 ' ~ (v['upstream_synced_at']|dt)) if v['upstream_synced_at'] else '还没有同步' }}</dd></dl>
+        <details class="adv" style="margin:0"><summary>单独设置这个地区</summary><div class="body">
+          <form method="post" action="{{ url_for('admin.variant_update', vid=v['id']) }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+            <label class="f" style="margin-top:0">套餐成本用哪一个</label><select class="t" name="cost_source"><option value="manual" {{ 'selected' if v['cost_source']=='manual' }}>使用我填写的人工成本</option><option value="upstream" {{ 'selected' if v['cost_source']=='upstream' }} {{ 'disabled' if v['upstream_cost_usd_cents'] is none }}>采用上游参考成本{{ '（上游暂未提供）' if v['upstream_cost_usd_cents'] is none }}</option></select>
+            <div class="mini"><div><label class="f">人工套餐成本（元）</label><input class="t" name="manual_package_cost" value="{{ (v['manual_package_cost_cny']|yuan) if v['manual_package_cost_cny'] is not none else '' }}" inputmode="decimal"></div>
+              <div><label class="f">其他成本（元）</label><input class="t" name="other_cost" value="{{ v['other_cost_cny']|yuan }}" inputmode="decimal"></div></div>
+            <label class="f">加价方式</label><select class="t" name="pricing_mode"><option value="percentage" {{ 'selected' if v['pricing_mode']=='percentage' }}>按成本百分比加价</option><option value="fixed" {{ 'selected' if v['pricing_mode']=='fixed' }}>固定利润</option></select>
+            <div class="mini"><div><label class="f">加价百分比（%）</label><input class="t" name="markup_percent" value="{{ '%g'|format(v['markup_basis_points']/100) }}" inputmode="decimal"></div>
+              <div><label class="f">固定利润（元）</label><input class="t" name="fixed_profit" value="{{ v['fixed_profit_cny']|yuan }}" inputmode="decimal"></div></div>
+            <label class="f">售价取整</label><select class="t" name="rounding">{% for k,l in rounding_text.items() %}<option value="{{ k }}" {{ 'selected' if v['rounding']==k }}>{{ l }}</option>{% endfor %}</select>
+            <div class="actions" style="margin-top:12px"><button class="btn sm primary">保存并重新计算</button></div></form></div></details>
+      </div>{% endfor %}
+    </div>
+    <details class="adv"><summary>技术详情</summary><div class="body"><dl class="kv"><dt>内部套餐标识</dt><dd><code>{{ pc['plan_id'] }}</code></dd></dl></div></details>
+  </div></details>
+  {% else %}<div class="empty" style="padding:20px"><b>还没有这个套餐的地区信息</b>点上面的「立即同步」，系统会从上游读取这个套餐有哪些地区。</div>{% endif %}
+</section>
+{% endfor %}
+
+<section class="c"><h2>卡密商品</h2>
+{% if rows %}<div class="grid-3">{% for p in rows %}{% set s = stocks[p['id']] %}
+  <div class="pc {{ '' if p['enabled'] else 'off' }}"><div style="display:flex;justify-content:space-between;gap:10px"><h3>{{ p['name'] }}</h3><span class="chip {{ 'ok' if p['enabled'] else 'off' }}">{{ '已上架' if p['enabled'] else '未上架' }}</span></div>
+    <div class="tags"><span class="tag">{{ '账号充值' if p['type']=='api_recharge' else '卡密发货' }}</span>{% if p['type']=='card' %}<span class="tag" style="{{ 'background:var(--err);color:#fff' if s['available']==0 }}">可售 {{ s['available'] }} 张</span>{% endif %}</div>
+    <div style="font:700 24px var(--serif)">¥{{ p['price_cents']|yuan }}</div>
+    <div class="row"><a class="btn sm" href="{{ url_for('admin.product_edit', pid=p['id']) }}">编辑</a>{% if p['type']=='card' %}<a class="btn sm" href="{{ url_for('admin.cards', pid=p['id']) }}">管理卡密</a>{% endif %}</div></div>{% endfor %}</div>
+{% else %}<div class="empty"><b>还没有卡密商品</b>需要卖卡密的话，点右上角「创建卡密商品」。</div>{% endif %}</section>
+
+<section class="c"><h2>最近的价格记录</h2><p class="sub">同步和调价都会留下记录，方便追溯。</p>
+<ul class="audit">{% for a in audit %}<li>{{ a['message'] }}<br><small>{{ a['created_at']|dt }} · {{ '系统自动' if a['actor']=='system' else a['actor'] }}</small></li>{% else %}<li class="help">还没有记录。</li>{% endfor %}</ul></section>
+{% endblock %}

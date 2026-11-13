@@ -1,0 +1,6 @@
+{% extends "base.html" %}{% block title %}管理员登录{% endblock %}
+{% block body %}<div class="auth"><h1 style="font-size:30px">管理员登录</h1><p class="muted">这里仅供网站管理员使用。买家购买不需要登录。</p>
+<form class="card" method="post" style="margin-top:16px"><input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+<label class="f" for="e" style="margin-top:0">邮箱</label><input class="t" id="e" name="email" type="email" required autocomplete="username">
+<label class="f" for="p">密码</label><input class="t" id="p" name="password" type="password" required autocomplete="current-password">
+<div style="margin-top:18px"><button class="btn block">登录</button></div></form></div>{% endblock %}

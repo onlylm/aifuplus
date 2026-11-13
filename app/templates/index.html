@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}{{ site['site_name'] }} · ChatGPT 充值{% endblock %}
+{% block body %}
+<section class="hero">
+  <div>
+    <h1>ChatGPT Plus / Pro<br>充到你自己的账号</h1>
+    <p class="lead">选套餐、填账号资料、支付宝付款，付款后系统自动充值，进度随时可查。</p>
+    <ul class="points"><li>不要账号密码</li><li>支付宝付款</li><li>订单随时可查</li>{% if site['refund_policy'] %}<li>开通失败可退款</li>{% endif %}</ul>
+    <div class="cta"><a class="btn" href="#plans">立即充值</a><a class="btn ghost" href="#steps">查看充值流程</a></div>
+    {% if min_price %}<div class="from">充值套餐 <b>¥{{ min_price|yuan }}</b> 起，以商品页价格为准</div>{% endif %}
+    {% if site['support_wechat'] %}<div class="support">客服微信 <code id="wx">{{ site['support_wechat'] }}</code><button type="button" class="btn ghost sm" data-copy="#wx">复制</button>{% if site['support_hours'] %}<span>{{ site['support_hours'] }}</span>{% endif %}</div>{% endif %}
+  </div>
+  <aside class="peek" aria-label="订单示例">
+    <div class="row"><span>充值账号</span><b>a•••••@example.com</b></div>
+    <div class="row"><span>套餐</span><b>ChatGPT Plus 月付</b></div>
+    <div class="row"><span>状态</span><span class="badge ok">✓ 已充值</span></div>
+    <p class="hint" style="margin:10px 0 0">订单页会实时显示这样的进度。</p>
+  </aside>
+</section>
+<div class="trust" style="margin-left:calc(50% - 50vw);margin-right:calc(50% - 50vw)"><div class="wrap"><div>充到你自己的账号</div><div>不需要账号密码</div><div>订单号可随时查询</div>{% if site['refund_policy'] %}<div>开通失败可退款</div>{% endif %}</div></div>
+
+<section class="section" id="plans"><h2>选择套餐</h2><p class="sec-sub">每个套餐都会在你付款后自动充值到你填写的账号。</p>
+{% if recharge %}<div class="shelf">{% for it in recharge %}{% set p = it['p'] %}
+  <article class="plan"><div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start"><h3>{{ p['name'] }}</h3><span class="badge brand">自动充值</span></div>
+    {% if p['description'] %}<p>{{ p['description'] }}</p>{% endif %}
+    <div class="tags">{% for r in it['regions'] %}<span class="tag">{{ r['code']|region_name }} ¥{{ r['price']|yuan }}</span>{% endfor %}</div>
+    <div class="price"><small>¥</small>{{ it['min_price']|yuan }}{% if it['regions']|length > 1 and (it['regions']|map(attribute='price')|unique|list|length > 1) %}<small style="margin-left:6px;font-size:15px">起</small>{% endif %}</div>
+    <a class="btn" href="{{ url_for('web.product', pid=p['id']) }}">立即充值</a></article>{% endfor %}</div>
+{% else %}<div class="empty"><b>套餐正在准备中</b>请稍后再来，或到「帮助」页联系客服。</div>{% endif %}</section>
+
+{% if cards %}<section class="section"><h2>卡密商品</h2><p class="sec-sub">付款后立刻在订单页看到卡密。</p>
+<div class="shelf">{% for p, stock in cards %}
+  <article class="plan"><div style="display:flex;justify-content:space-between;gap:10px"><h3>{{ p['name'] }}</h3>{% if stock>0 %}<span class="badge ok">有货</span>{% else %}<span class="badge err">已售罄</span>{% endif %}</div>
+    {% if p['description'] %}<p>{{ p['description'] }}</p>{% endif %}
+    <div class="price"><small>¥</small>{{ p['price_cents']|yuan }}</div>
+    <a class="btn" href="{{ url_for('web.product', pid=p['id']) }}" {{ 'aria-disabled=true' if stock<=0 }}>{{ '购买' if stock>0 else '暂无库存' }}</a></article>{% endfor %}</div></section>{% endif %}
+
+<section class="section" id="steps"><h2>充值流程</h2><p class="sec-sub">下单不需要创建账号。</p>
+<ol class="steps6"><li><b>选择商品</b><span>挑一个套餐</span></li><li><b>填写资料</b><span>选地区、填充值凭证</span></li><li><b>确认订单</b><span>核对金额和账号</span></li><li><b>支付宝付款</b><span>扫码支付</span></li><li><b>自动充值</b><span>付款后自动提交</span></li><li><b>查看结果</b><span>订单页实时更新</span></li></ol></section>
+
+<section class="section"><h2>常见问题</h2><div style="margin-top:12px">{% for q, a in faq %}<details class="acc"><summary>{{ q }}</summary><div class="a">{{ a }}</div></details>{% endfor %}</div></section>
+{% endblock %}

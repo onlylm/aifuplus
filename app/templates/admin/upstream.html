@@ -1,0 +1,46 @@
+{% extends "admin/base.html" %}{% block title %}上游充值 · 管理后台{% endblock %}
+{% block body %}
+<div class="page-head"><div><h1>上游充值</h1><p>买家付款后，系统自动向上游下单充值。先在这里连接上游，再同步四种套餐在各地区的参考成本。</p></div>
+  <a class="btn" href="{{ url_for('admin.products') }}">管理套餐与定价</a></div>
+
+<div class="grid" style="margin-bottom:20px">
+  {% set tested = cfg['last_test_at'] > 0 %}
+  <div class="stat"><div class="k">连接状态</div>
+    <div class="v"><span class="dot {{ 'ok' if tested and cfg['last_test_ok'] else ('bad' if tested else 'warn') }}"></span>{{ ('已连接' if cfg['last_test_ok'] else '未连接') if tested else '还没测试' }}</div>
+    <div class="h">{{ cfg['last_test_msg'] or '保存密钥后，点「测试连接」' }}</div></div>
+  <div class="stat"><div class="k">自动充值</div><div class="v"><span class="dot {{ 'ok' if cfg['enabled'] else 'warn' }}"></span>{{ '已启用' if cfg['enabled'] else '未启用' }}</div>
+    <div class="h">{{ '付款后自动充值' if cfg['enabled'] else '买家付款后会先等待，不会提交' }}</div></div>
+  <div class="stat"><div class="k">Automate Key（上游密钥）</div><div class="v"><span class="dot {{ 'ok' if cfg['has_key'] else 'bad' }}"></span>{{ '已保存' if cfg['has_key'] else '未配置' }}</div>
+    <div class="h">保存后不会再显示</div></div>
+  <div class="stat"><div class="k">付款用的卡台</div><div class="v">{{ '已指定' if cfg['card_platform_id'] else '自动选择' }}</div><div class="h">{{ '只使用你指定的卡台' if cfg['card_platform_id'] else '由上游按你的用卡策略选择' }}</div></div>
+  <div class="stat"><div class="k">最近同步成本</div><div class="v" style="font-size:20px">{{ cfg['last_sync_at']|dt if cfg['last_sync_at'] else '还没有同步' }}</div><div class="h">共 {{ variant_count }} 个套餐地区</div></div>
+</div>
+
+<form method="post"><input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+<section class="c"><h2>连接设置</h2><p class="sub">分两步：先保存密钥，再打开「启用自动充值」。两者是独立的开关。</p>
+<label class="f" for="k">Automate Key（上游给你的密钥）</label>
+<input class="t" id="k" name="api_key" type="password" autocomplete="new-password" placeholder="{{ '已保存。不需要修改的话，请保持为空。' if cfg['has_key'] else '粘贴上游给你的密钥' }}">
+<label class="check"><input type="checkbox" name="enabled" value="1" {{ 'checked' if cfg['enabled'] }}>
+  <span>启用自动充值<br><span class="help" style="font-weight:400">打开后，买家付款成功会自动向上游下单充值。关闭时，已付款的充值订单会暂停等待，不会丢失。</span></span></label>
+<div class="actions"><button class="btn primary">保存配置</button></div>
+<details class="adv"><summary>高级设置（一般不需要改）</summary><div class="body">
+  <label class="f" for="u">上游服务地址</label><input class="t" id="u" name="base_url" value="{{ cfg['base_url'] }}">
+  <label class="f" for="cp">指定卡台编号（留空 = 由上游自动选择）</label><input class="t" id="cp" name="card_platform_id" value="{{ cfg['card_platform_id'] }}">
+  <p class="help">只有当你在上游有多个卡台、想固定使用其中一个时才需要填。</p></div></details>
+</section></form>
+
+<section class="c"><h2>检查与同步</h2><p class="sub">保存配置后，先测试连接，再同步成本。系统之后会每 30 分钟自动同步一次。</p>
+<div class="actions">
+  <form method="post" action="{{ url_for('admin.upstream_test') }}" class="inline"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><button class="btn">测试连接</button></form>
+  <form method="post" action="{{ url_for('admin.upstream_sync_plans') }}" class="inline"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><button class="btn">同步套餐与成本</button></form>
+</div>
+{% if cfg['last_test_at'] and not cfg['last_test_ok'] %}<p class="help" style="margin-top:12px;color:var(--err)">{{ cfg['last_test_msg'] }}</p>{% endif %}
+{% for key in ('upstream','fx') %}{% if stale[key]['level'] in ('warn','err') %}<div class="bar {{ stale[key]['level'] }}" style="margin-top:12px">{{ stale[key]['text'] }}</div>{% endif %}{% endfor %}
+{% if cfg['last_test_detail'] %}<details class="adv"><summary>技术详情</summary><div class="body"><code>{{ cfg['last_test_detail'] }}</code></div></details>{% endif %}
+</section>
+
+<section class="c"><h2>本站销售的套餐</h2><p class="sub">只开放这四种 ChatGPT 直充套餐。各地区的成本、加价和售价，请到「商品与定价」页管理。</p>
+<div class="grid">{% for pc in cards %}<div class="pc"><h3>{{ pc['label'] }}</h3><div class="tags"><span class="tag">已上架 {{ pc['live'] }} / {{ pc['total'] }} 个地区</span>{% if pc['anomalies'] %}<span class="chip bad">价格异常</span>{% endif %}</div>
+  <p>{{ ('最低售价 ¥' ~ (pc['min_price']|yuan)) if pc['min_price'] else '还没有上架的地区' }}</p></div>{% endfor %}</div>
+<div class="actions" style="margin-top:16px"><a class="btn" href="{{ url_for('admin.products') }}">去管理套餐与定价</a></div></section>
+{% endblock %}

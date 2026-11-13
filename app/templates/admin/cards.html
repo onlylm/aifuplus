@@ -1,0 +1,22 @@
+{% extends "admin/base.html" %}{% block title %}卡密库存 · 管理后台{% endblock %}
+{% block body %}
+<div class="page-head"><div><h1>{{ p['name'] }} · 卡密库存</h1><p>买家付款后，系统自动发放「可售」的卡密。卡密加密保存，这里只显示隐藏了中间部分的内容。</p></div><a class="btn" href="{{ url_for('admin.product_edit', pid=p['id']) }}">返回商品设置</a></div>
+<div class="grid" style="margin-bottom:20px">
+  <div class="stat"><div class="k">可售</div><div class="v" style="color:{{ 'var(--ok)' if stock['available'] else 'var(--err)' }}">{{ stock['available'] }}</div><div class="h">正在出售的库存</div></div>
+  <div class="stat"><div class="k">被占用</div><div class="v">{{ stock['reserved'] }}</div><div class="h">买家已下单，等待付款</div></div>
+  <div class="stat"><div class="k">已售出</div><div class="v">{{ stock['sold'] }}</div><div class="h">已发给买家</div></div>
+  <div class="stat"><div class="k">已作废</div><div class="v">{{ stock['void'] }}</div><div class="h">不会再被发放</div></div>
+</div>
+<section class="c"><h2>导入卡密</h2><p class="sub">每行写一条卡密，重复的会自动跳过。也可以上传文本文件。</p>
+<form method="post" enctype="multipart/form-data"><input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+<textarea class="t" name="codes" rows="6" autocomplete="off" placeholder="每行一条卡密"></textarea>
+<label class="f" for="fi">或者上传 .txt 文件</label><input id="fi" type="file" name="file" accept=".txt,.csv">
+<div class="actions" style="margin-top:14px"><button class="btn primary">导入卡密</button></div></form></section>
+<section class="c"><h2>卡密列表</h2>
+<div class="tabs">{% for k,l in [('', '全部'),('available','可售'),('reserved','被占用'),('sold','已售出'),('void','已作废')] %}<a class="{{ 'on' if status==k }}" href="?status={{ k }}">{{ l }}</a>{% endfor %}</div>
+{% if rows %}<table class="t"><tr><th>卡密（已隐藏）</th><th>状态</th><th>导入时间</th><th></th></tr>
+{% for r in rows %}<tr><td><code>{{ r['mask'] }}</code></td><td>{{ {'available':'可售','reserved':'被占用','sold':'已售出','void':'已作废'}[r['status']] }}</td><td>{{ r['created_at']|dt }}</td>
+<td>{% if r['status']=='available' %}<form class="inline" method="post" action="{{ url_for('admin.card_void', cid=r['id']) }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><button class="btn sm danger">作废</button></form>{% endif %}</td></tr>{% endfor %}</table>
+<p>{% if page>1 %}<a href="?status={{ status }}&page={{ page-1 }}">上一页</a> {% endif %}第 {{ page }} 页{% if rows|length==50 %} <a href="?status={{ status }}&page={{ page+1 }}">下一页</a>{% endif %}</p>
+{% else %}<div class="empty"><b>这里还没有卡密</b>在上面的输入框里粘贴卡密，点「导入卡密」。</div>{% endif %}</section>
+{% endblock %}

@@ -1,0 +1,56 @@
+{% extends "base.html" %}{% from "_macros.html" import flow %}
+{% block title %}{{ p['name'] }} · {{ site['site_name'] }}{% endblock %}
+{% block body %}
+{% set rech = p['type']=='api_recharge' %}
+<div class="crumb"><a href="{{ url_for('web.index') }}">首页</a> / 填写资料</div>
+{{ flow(2, 'recharge' if rech else 'card') }}
+<div class="split">
+  <section>
+    <h1 class="summary-h">{{ p['name'] }}</h1>
+    {% set first = (regions|first) if rech and regions else none %}
+    <div class="price" style="margin:6px 0 14px"><small>¥</small><span id="shown-price">{{ (first['price'] if first else p['price_cents'])|yuan }}</span></div>
+    {% if rech %}<div class="tags" style="margin-bottom:14px">{% for r in regions %}<span class="tag">{{ r['code']|region_name }} ¥{{ r['price']|yuan }}</span>{% endfor %}<span class="badge brand">自动充值</span></div>{% endif %}
+    {% if p['description'] %}<p style="white-space:pre-line;max-width:34em">{{ p['description'] }}</p>{% endif %}
+    <div class="card" style="margin-top:20px;max-width:34em"><h3 style="font-size:18px;margin-bottom:8px">接下来会发生什么</h3>
+      <ol style="margin:0;padding-left:20px;color:var(--ink2)">
+        <li>{{ '选择地区、填写充值凭证' if rech else '填写查单邮箱' }}，核对订单。</li><li>用支付宝扫码付款。</li>
+        <li>{{ '付款后系统自动为你的账号充值。' if rech else '付款后卡密立即显示在订单页。' }}</li><li>在订单页查看结果，下单不需要创建账号。</li></ol></div>
+  </section>
+
+  <form class="card" method="post" action="{{ url_for('web.confirm', pid=p['id']) }}" id="orderform" novalidate>
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    {% if rech %}
+      <input type="hidden" name="quantity" value="1">
+      <h3 style="font-size:20px">填写充值资料</h3>
+      <label class="f" id="rl" style="margin-top:14px">充值地区</label>
+      <div class="opts" role="radiogroup" aria-labelledby="rl">{% for r in regions %}<label><input type="radio" name="region" value="{{ r['code'] }}" data-price="{{ r['price'] }}" {{ 'checked' if (form.get('region')==r['code']) or (not form.get('region') and loop.first) }}><span>{{ r['code']|region_name }} · ¥{{ r['price']|yuan }}</span></label>{% endfor %}</div>
+      <p class="hint">选哪个地区，就按哪个地区的价格收费。要和账号当前的付款地区一致。</p>
+
+      <label class="f" for="auth">充值凭证（账号授权信息）</label>
+      <div class="guide"><b>充值凭证怎么获取？</b>
+        <ol>{% for line in (site['session_guide'] or default_guide).splitlines() if line.strip() %}<li>{{ line.strip() }}</li>{% endfor %}</ol>
+        {% if site['session_guide_url'] %}<a class="btn ghost sm" href="{{ site['session_guide_url'] }}" target="_blank" rel="noopener">打开获取页面</a>{% endif %}
+        <details style="margin-top:10px"><summary class="hint" style="cursor:pointer">看看正确的内容长什么样</summary>
+          <pre style="margin:8px 0 0;white-space:pre-wrap;word-break:break-all;font:13px/1.5 var(--mono);background:var(--card);border-radius:8px;padding:10px">{ "accessToken": "eyJhbGci…", "sessionToken": "…", "account_id": "…", "user": { "email": "you@example.com" } }</pre>
+          <p class="hint">以上是示例，每个人的内容不同。请完整复制，不要改动。</p></details></div>
+      <textarea class="t" id="auth" name="auth_json" data-session spellcheck="false" autocomplete="off" placeholder="把复制好的充值凭证粘贴到这里">{{ form.get('auth_json','') }}</textarea>
+      <ul class="chk" id="chk"><li data-k="email">账号邮箱<span></span></li><li data-k="token">账号授权信息</li><li data-k="acct">账号标识</li><li data-k="sess" class="opt">附加授权信息（建议提供）</li></ul>
+      <p class="hint">我们<b>不需要</b>你的账号密码。这些信息只用于本次充值，加密保存，充值完成后立即删除。</p>
+    {% else %}
+      <h3 style="font-size:20px">购买数量</h3>
+      <p class="hint">{{ '库存 %d 张' % stock if stock>0 else '已售罄' }}，每单最多 {{ p['max_per_order'] }} 张</p>
+      <div class="qty" data-qty data-unit="{{ p['price_cents'] }}" style="margin-top:8px"><button type="button" data-step="-1" aria-label="减少">−</button>
+        <input name="quantity" type="number" value="{{ form.get('quantity','1') }}" min="1" max="{{ [p['max_per_order'], stock]|min if stock>0 else 1 }}" inputmode="numeric" aria-label="数量"><button type="button" data-step="1" aria-label="增加">+</button></div>
+    {% endif %}
+
+    <label class="f" for="em">查单邮箱</label>
+    <input class="t" id="em" name="lookup_email" type="email" required autocomplete="email" value="{{ form.get('lookup_email','') }}" placeholder="you@example.com">
+    <p class="hint">用来查询订单，不是{{ ' ChatGPT 账号' if rech else '登录账号' }}。请填写常用邮箱。</p>
+    <label class="f" for="ct">联系方式（选填）</label>
+    <input class="t" id="ct" name="contact" maxlength="100" value="{{ form.get('contact','') }}" placeholder="微信 / QQ，方便出问题时联系你">
+
+    <div class="total"><span>应付</span><span class="price"><small>¥</small><span id="total">{{ p['price_cents']|yuan }}</span></span></div>
+    <button class="btn block" id="submit" {{ 'disabled' if (not rech and stock<=0) }}>下一步：确认订单</button>
+  </form>
+</div>
+{% endblock %}

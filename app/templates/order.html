@@ -1,0 +1,48 @@
+{% extends "base.html" %}{% from "_macros.html" import flow %}
+{% block title %}订单 {{ o['order_no'] }} · {{ site['site_name'] }}{% endblock %}
+{% block body %}
+{% set rech = o['product_type']=='api_recharge' %}
+{% set cur = 4 if o['payment_status']=='unpaid' else (6 if f['status']=='delivered' else 5) %}
+{% if o['payment_status']!='closed' %}{{ flow(cur if f['status']!='delivered' else 6, 'recharge' if rech else 'card') }}{% endif %}
+<div data-order data-pay="{{ o['payment_status'] }}" data-ful="{{ f['status'] }}" data-deadline="{{ o['pay_deadline'] }}" data-status="{{ url_for('web.order_status', order_no=o['order_no'], t=token or None) }}">
+<div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px 24px;align-items:baseline;margin-bottom:22px">
+  <h1 style="font-size:28px">{{ o['product_name'] }}{% if o['quantity']>1 %} × {{ o['quantity'] }}{% endif %}</h1><span class="order-no muted">订单号 {{ o['order_no'] }}</span></div>
+
+{% if o['payment_status']=='unpaid' %}
+  <div class="card"><h2 class="state-h"><span class="pulse"></span>等待付款</h2><p>这笔订单还没有付款。{% if o['pay_deadline'] > core.now() %}付款时限内可以继续付款。{% else %}已超过付款时限，订单即将自动关闭。{% endif %}</p>
+    {% if o['pay_deadline'] > core.now() %}<a class="btn" href="{{ url_for('web.pay', order_no=o['order_no'], t=token or None) }}">继续付款</a>{% endif %}</div>
+
+{% elif o['payment_status']=='closed' %}
+  <div class="card"><h2 class="state-h">订单已关闭</h2><p>超过付款时限没有收到付款，订单已关闭。需要的话请重新下单。如果你其实已经付过款，请带上订单号联系客服。</p>
+    <div class="cta"><a class="btn" href="{{ url_for('web.index') }}">重新选择商品</a><a class="btn dark" href="{{ url_for('web.help_page') }}#support">联系客服</a></div></div>
+
+{% else %}
+  {% if f['status']=='delivered' %}
+    {% if not rech %}
+      <h2 class="state-h">付款成功，卡密在这里</h2>
+      {% if full %}
+        <p class="muted">共 {{ cards|length }} 张。再次打开本页，看到的仍是这一批。</p>
+        <div style="display:grid;gap:14px;margin:18px 0">{% for c in cards %}<div class="key-card"><div class="meta">卡密 {{ loop.index }} / {{ cards|length }}</div><div class="k" id="k{{ loop.index }}">{{ c }}</div><div><button type="button" class="btn ghost sm" data-copy="#k{{ loop.index }}">复制卡密</button></div></div>{% endfor %}</div>
+        {% if cards|length>1 %}<button type="button" class="btn dark sm" data-copy="*">复制全部卡密</button>{% endif %}
+      {% else %}
+        <div class="card"><p>出于安全考虑，卡密只能通过<b>下单时保存的专属链接</b>查看。请从收藏或浏览器历史里打开那条链接。</p><a class="btn dark" href="{{ url_for('web.help_page') }}#support">找不到链接？联系客服</a></div>
+      {% endif %}
+    {% else %}
+      <ol class="track"><li class="done"><i></i>已付款</li><li class="done"><i></i>已提交充值</li><li class="done"><i></i>充值完成</li></ol>
+      <h2 class="state-h">充值已完成</h2><p>已为 {{ o['recharge_email']|mask_email }} 完成「{{ o['product_name'] }}」。请登录该账号确认套餐已生效。</p>
+    {% endif %}
+  {% elif f['status'] in ('pending','processing') %}
+    {% if rech %}{% set sub = f['upstream_task_id'] != '' %}<ol class="track"><li class="done"><i></i>已付款</li><li class="{{ 'done' if sub else 'now' }}"><i></i>提交充值</li><li class="{{ 'now' if sub }}"><i></i>充值完成</li></ol>{% endif %}
+    <h2 class="state-h"><span class="pulse"></span>{{ '正在为你的账号充值' if rech else '正在发货' }}</h2>
+    <p>已收到你的付款。这一步通常几秒到几分钟，页面会自动更新，不需要刷新。{% if rech %}充值账号：{{ o['recharge_email']|mask_email }}。{% endif %}</p>
+  {% else %}
+    <h2 class="state-h">已收到付款，订单需要人工处理</h2>
+    <p>系统暂时没能自动完成这笔订单。<b>你的付款记录已经保存，不会丢失</b>，我们会尽快处理。请保存本页，并带上订单号联系客服。</p>
+    <a class="btn dark" href="{{ url_for('web.help_page') }}#support">联系客服</a>
+  {% endif %}
+{% endif %}
+
+{% if token and o['payment_status']!='closed' %}<div class="keep"><p><b>请收藏这个页面。</b>这条专属链接是找回订单{% if not rech %}和卡密{% endif %}的凭证，别发给别人。</p><button type="button" class="btn ghost sm" data-copy="{{ request.url }}">复制链接</button></div>{% endif %}
+<p class="hint" style="margin-top:24px">下单时间 {{ o['created_at']|dt }}{% if o['paid_at'] %} · 付款时间 {{ o['paid_at']|dt }}{% endif %}</p>
+</div>
+{% endblock %}

@@ -1,0 +1,18 @@
+{% extends "admin/base.html" %}{% block title %}订单 · 管理后台{% endblock %}
+{% block body %}
+<div class="page-head"><div><h1>订单</h1><p>点进订单可以看到付款、发货或充值的完整情况。</p></div></div>
+<section class="c">
+<div class="tabs">{% for k,l in views %}<a class="{{ 'on' if view==k }}" href="?view={{ k }}&q={{ q }}">{{ l }}</a>{% endfor %}</div>
+<form method="get" class="actions" style="margin-bottom:10px"><input type="hidden" name="view" value="{{ view }}"><input class="t" name="q" value="{{ q }}" placeholder="按订单号、买家邮箱搜索" style="max-width:340px"><button class="btn sm">搜索</button></form>
+{% for r in rows %}
+<div class="orow"><div><div class="t1">{{ r['product_name'] }}{% if r['quantity']>1 %} × {{ r['quantity'] }}{% endif %} · ¥{{ r['amount_cents']|yuan }}</div>
+  <div class="t2">{{ r['lookup_email'] or r['recharge_email'] }} · {{ r['created_at']|dt }}</div>
+  {% if r['payment_status']=='paid' and r['fstatus'] in ('blocked','failed','manual') %}<div class="t2" style="color:var(--err)">{{ r['freason'] or r['attention'] }}</div>{% endif %}</div>
+  <div class="tags"><span class="chip {{ r['payment_status']|pay_tone }}">{{ r['payment_status']|pay_text }}</span>
+    {% if r['payment_status']=='paid' %}<span class="chip {{ r['fstatus']|ful_tone }}">{{ r['fstatus']|ful_text }}</span>{% endif %}
+    {% if r['late_payment'] %}<span class="chip warn">迟到付款</span>{% endif %}</div>
+  <a class="btn sm" href="{{ url_for('admin.order_detail', oid=r['id']) }}">查看</a></div>
+{% else %}<div class="empty"><b>没有符合条件的订单</b>换一个筛选，或者等买家下单。</div>{% endfor %}
+<p>{% if page>1 %}<a href="?view={{ view }}&q={{ q }}&page={{ page-1 }}">上一页</a> {% endif %}第 {{ page }} 页{% if rows|length==50 %} <a href="?view={{ view }}&q={{ q }}&page={{ page+1 }}">下一页</a>{% endif %}</p>
+</section>
+{% endblock %}

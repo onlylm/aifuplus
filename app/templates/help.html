@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}帮助 · {{ site['site_name'] }}{% endblock %}
+{% block body %}
+<h1 style="font-size:34px;margin-bottom:6px">帮助</h1><p class="muted">下单、付款、查询订单的常见问题。</p>
+<section class="section" style="padding-top:28px"><h2 style="font-size:24px">购买流程</h2>
+<ol class="steps6" style="margin-top:14px"><li><b>选择商品</b><span>挑一个套餐</span></li><li><b>填写资料</b><span>选地区、填充值凭证</span></li><li><b>确认订单</b><span>核对金额和账号</span></li><li><b>支付宝付款</b><span>扫码支付</span></li><li><b>自动充值</b><span>付款后自动提交</span></li><li><b>查看结果</b><span>订单页实时更新</span></li></ol></section>
+<section class="section" style="padding-top:36px"><h2 style="font-size:24px">常见问题</h2><div style="margin-top:10px">{% for q, a in faq %}<details class="acc"><summary>{{ q }}</summary><div class="a">{{ a }}</div></details>{% endfor %}</div></section>
+{% if site['refund_policy'] %}<section class="section" style="padding-top:36px"><h2 style="font-size:24px">退款与售后</h2><div class="card legal" style="margin-top:14px">{{ site['refund_policy'] }}</div></section>{% endif %}
+<section class="section" id="support" style="padding-top:36px"><h2 style="font-size:24px">联系客服</h2>
+<div class="card" style="margin-top:14px;max-width:560px">
+{% if site['support_wechat'] or site['support_qr_url'] %}
+  {% if site['support_wechat'] %}<p style="margin:0 0 8px">客服微信号</p><div class="cta"><code class="mono" id="wx" style="font-size:20px;background:var(--bg2);padding:4px 14px;border-radius:999px">{{ site['support_wechat'] }}</code><button type="button" class="btn ghost sm" data-copy="#wx">复制</button></div>{% endif %}
+  {% if site['support_hours'] %}<p class="hint">工作时间：{{ site['support_hours'] }}</p>{% endif %}
+  {% if site['support_qr_url'] %}<img src="{{ site['support_qr_url'] }}" alt="客服二维码" width="180" height="180" style="margin-top:12px;border-radius:12px;border:1px solid var(--line)">{% endif %}
+  <p class="hint">联系客服时，请带上订单号。</p>
+{% else %}<p class="muted" style="margin:0">客服联系方式还没有设置。你可以先用订单号和下单邮箱在「查询订单」里查看进度。</p>{% endif %}</div></section>
+{% endblock %}

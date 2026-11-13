@@ -1,0 +1,27 @@
+{% extends "admin/base.html" %}{% block title %}编辑商品 · 管理后台{% endblock %}
+{% block body %}
+<div class="page-head"><div><h1>{{ p['name'] }}</h1><p>{{ '账号充值商品：买家付款后自动充值到他们的账号。' if p['type']=='api_recharge' else '卡密发货商品：买家付款后自动获得卡密。' }}</p></div>
+  {% if p['type']=='card' %}<a class="btn" href="{{ url_for('admin.cards', pid=p['id']) }}">管理卡密</a>{% endif %}</div>
+{% if stock is not none and stock['available']==0 %}<div class="notice">这个商品现在没有可卖的卡密，买家会看到「已售罄」。请先<a href="{{ url_for('admin.cards', pid=p['id']) }}">导入卡密</a>。</div>{% endif %}
+<form method="post"><input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+<section class="c"><h2>销售内容</h2>
+<label class="f" for="n">商品名称</label><input class="t" id="n" name="name" value="{{ p['name'] }}" maxlength="60">
+<label class="f" for="pr">销售价格（元）</label><input class="t" id="pr" name="price" value="{{ p['price_cents']|yuan }}" inputmode="decimal" style="max-width:180px">
+<label class="f" for="d">商品介绍</label><textarea class="t" id="d" name="description">{{ p['description'] }}</textarea>
+{% if p['type']=='api_recharge' %}
+<label class="f">可销售的地区</label>
+<div class="tags" style="gap:10px">
+  {% set cur = p['regions']|regions_list %}{% set opts = plan['region_list'] if plan else cur %}
+  {% for r in opts %}<label class="check" style="margin:0"><input type="checkbox" name="regions" value="{{ r }}" {{ 'checked' if r in cur }}><span>{{ r|region_name }}</span></label>{% endfor %}
+</div>
+{% if plan and not plan['usable'] %}<p class="help" style="color:var(--warn)">提醒：上游目前显示这个套餐「暂不可用」，付款后可能无法自动充值。</p>{% endif %}
+{% else %}
+<label class="f" for="mx">每单最多买几张</label><input class="t" id="mx" name="max_per_order" type="number" min="1" max="100" value="{{ p['max_per_order'] }}" style="max-width:140px">
+{% endif %}
+</section>
+<section class="c"><h2>上架状态</h2>
+<label class="check"><input type="checkbox" name="enabled" value="1" {{ 'checked' if p['enabled'] }}><span>上架销售<br><span class="help" style="font-weight:400">取消勾选后，买家在前台看不到这个商品；已有订单不受影响。</span></span></label>
+<div class="actions"><button class="btn primary">保存</button></div>
+{% if p['type']=='api_recharge' %}<details class="adv"><summary>高级信息</summary><div class="body"><dl class="kv"><dt>内部套餐标识</dt><dd><code>{{ p['plan_id'] }}</code></dd></dl><p class="help">由套餐同步自动设置，不可修改。</p></div></details>{% endif %}
+</section></form>
+{% endblock %}

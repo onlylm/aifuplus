@@ -1,0 +1,3 @@
+{% extends "base.html" %}{% block title %}{{ title }} · {{ site['site_name'] }}{% endblock %}
+{% block body %}<h1 style="font-size:32px;margin-bottom:18px">{{ title }}</h1>
+{% if body %}<div class="card legal">{{ body }}</div>{% else %}<div class="empty"><b>内容还没有发布</b>请稍后再来看看。</div>{% endif %}{% endblock %}

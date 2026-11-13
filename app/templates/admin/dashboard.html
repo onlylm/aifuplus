@@ -1,0 +1,42 @@
+{% extends "admin/base.html" %}{% block title %}首页 · 管理后台{% endblock %}
+{% block body %}
+<div class="page-head"><div><h1>首页</h1><p>这里显示今天需要你关注的事。一切正常时，你不需要做任何操作。</p></div></div>
+
+{% for key in ('upstream','fx') %}{% if stale[key]['level'] in ('warn','err') %}<div class="bar {{ stale[key]['level'] }}"><b>{{ '需要尽快处理' if stale[key]['level']=='err' else '提醒' }}</b>{{ stale[key]['text'] }} <a href="{{ url_for('admin.products') }}">去商品与定价页</a></div>{% endif %}{% endfor %}
+{% if anomalies %}<div class="bar err"><b>有价格异常，等待确认</b>成本或汇率变化超过了阈值，系统已暂停自动调价。<a href="{{ url_for('admin.products') }}">去确认</a></div>{% endif %}
+<div class="grid" style="margin-bottom:20px">
+  <div class="stat"><div class="k">需要你处理</div><div class="v" style="color:{{ 'var(--err)' if stats['attention'] else 'var(--ok)' }}">{{ stats['attention'] }}</div><div class="h">{{ '有订单没能自动完成' if stats['attention'] else '没有积压的订单' }}</div></div>
+  <div class="stat"><div class="k">待付款</div><div class="v">{{ stats['unpaid'] }}</div><div class="h">买家已下单，还没付款</div></div>
+  <div class="stat"><div class="k">已付款</div><div class="v">{{ stats['paid'] }}</div><div class="h">累计收到付款的订单</div></div>
+  <div class="stat"><div class="k">已完成</div><div class="v">{{ stats['done'] }}</div><div class="h">已发货或已充值到账</div></div>
+</div>
+
+{% if not all_done %}
+<section class="c"><h2>开店前，还差这几步</h2><p class="sub">按顺序完成，就可以开始卖货了。</p>
+{% for s in steps %}<div class="todo {{ 'done' if s['done'] }}"><span class="mark">{{ '✓' if s['done'] else loop.index }}</span>
+  <div class="tx"><b>{{ s['title'] }}</b><span class="help">{{ s['hint'] }}</span></div>
+  {% if not s['done'] %}<a class="btn {{ 'primary' if loop.first or steps[loop.index0-1]['done'] }} sm" href="{{ s['url'] }}">{{ s['btn'] }}</a>{% else %}<span class="chip ok">已完成</span>{% endif %}</div>{% endfor %}
+</section>
+{% endif %}
+
+<section class="c"><h2>需要你处理的订单</h2><p class="sub">买家已经付款，但系统没能自动完成的订单会出现在这里。</p>
+{% for r in attention %}
+  <div class="orow"><div><div class="t1">{{ r['product_name'] }}{% if r['quantity']>1 %} × {{ r['quantity'] }}{% endif %}</div>
+    <div class="t2">{{ r['freason'] or r['attention'] }}</div><div class="t2">{{ r['lookup_email']|mask_email }} · {{ r['created_at']|dt }}</div></div>
+    <span class="chip {{ r['fstatus']|ful_tone }}">{{ r['fstatus']|ful_text }}</span>
+    <a class="btn primary sm" href="{{ url_for('admin.order_detail', oid=r['id']) }}">查看并处理</a></div>
+{% else %}<div class="empty"><b>目前没有需要处理的订单</b>有新情况时，会显示在这里。</div>{% endfor %}
+</section>
+
+<div class="grid-3">
+  <section class="c" style="margin:0"><h3><span class="dot {{ 'ok' if ali['enabled'] else 'bad' }}"></span>支付宝收款</h3>
+    <p class="help">{{ ('已启用 · ' ~ ('沙箱测试环境' if ali['mode']=='sandbox' else '正式环境')) if ali['enabled'] else '还没有启用，买家暂时无法付款。' }}</p>
+    <a class="btn sm" href="{{ url_for('admin.alipay_config') }}">打开设置</a></section>
+  <section class="c" style="margin:0"><h3><span class="dot {{ 'ok' if up['enabled'] and up['has_key'] else 'warn' }}"></span>自动充值</h3>
+    <p class="help">{{ '已启用，付款后自动充值。' if up['enabled'] and up['has_key'] else '还没有启用，充值类商品付款后会先等待。' }}</p>
+    <a class="btn sm" href="{{ url_for('admin.upstream_config') }}">打开设置</a></section>
+  <section class="c" style="margin:0"><h3><span class="dot ok"></span>商品与定价</h3>
+    <p class="help">ChatGPT 四种套餐 · 卡密商品 {{ card_products }} 个</p>
+    <a class="btn sm" href="{{ url_for('admin.products') }}">管理商品与定价</a></section>
+</div>
+{% endblock %}

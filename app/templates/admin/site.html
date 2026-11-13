@@ -1,0 +1,22 @@
+{% extends "admin/base.html" %}{% block title %}网站内容 · 管理后台{% endblock %}
+{% block body %}
+<div class="page-head"><div><h1>网站内容</h1><p>这里的内容会显示在前台。没填的地方，前台会自动隐藏对应的入口。</p></div></div>
+<form method="post"><input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+<section class="c"><h2>网站与客服</h2>
+<label class="f" for="sn">网站名称</label><input class="t" id="sn" name="site_name" value="{{ s['site_name'] }}" maxlength="40">
+<label class="f" for="wx">客服微信号（买家可一键复制）</label><input class="t" id="wx" name="support_wechat" value="{{ s['support_wechat'] }}">
+<label class="f" for="hr">客服工作时间</label><input class="t" id="hr" name="support_hours" value="{{ s['support_hours'] }}" placeholder="例如 每天 10:00–22:00">
+<label class="f" for="qr">客服二维码图片地址（选填）</label><input class="t" id="qr" name="support_qr_url" value="{{ s['support_qr_url'] }}"><p class="help">没有的话留空即可。</p>
+<label class="f" for="ds">页脚声明</label><textarea class="t" id="ds" name="disclaimer" rows="2" style="min-height:70px">{{ s['disclaimer'] }}</textarea></section>
+<section class="c"><h2>买家填写充值凭证的说明</h2><p class="sub">买家下单充值时，需要提供「充值凭证」（账号授权信息）。请把你们实际的获取方法写在这里，前台会按步骤展示。</p>
+<label class="f" for="sg">获取步骤（每行一步）</label><textarea class="t" id="sg" name="session_guide" placeholder="{{ default_guide }}">{{ s['session_guide'] }}</textarea>
+<label class="f" for="su">「打开获取页面」按钮的链接（选填）</label><input class="t" id="su" name="session_guide_url" value="{{ s['session_guide_url'] }}" placeholder="https://…"></section>
+<section class="c"><h2>帮助页内容</h2>
+<label class="f" for="rf">退款与售后说明（留空则不显示）</label><textarea class="t" id="rf" name="refund_policy">{{ s['refund_policy'] }}</textarea>
+<label class="f" for="fq">常见问题（一个问题写一行，下一行写回答，问题之间空一行；留空则使用系统默认问题）</label><textarea class="t" id="fq" name="faq" rows="8" placeholder="{{ default_faq }}">{{ s['faq'] }}</textarea></section>
+<section class="c"><h2>法务页面</h2>
+<label class="f" for="tm">服务条款（留空则页脚不显示入口）</label><textarea class="t" id="tm" name="terms_text">{{ s['terms_text'] }}</textarea>
+<label class="f" for="pv">隐私说明（留空则页脚不显示入口）</label><textarea class="t" id="pv" name="privacy_text">{{ s['privacy_text'] }}</textarea>
+<div class="actions" style="margin-top:14px"><button class="btn primary">保存</button></div></section>
+</form>
+{% endblock %}

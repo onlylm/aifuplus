@@ -1,0 +1,21 @@
+{% extends "base.html" %}{% from "_macros.html" import flow %}
+{% block title %}支付宝付款 · {{ site['site_name'] }}{% endblock %}
+{% block body %}
+{{ flow(4, 'recharge' if o['product_type']=='api_recharge' else 'card') }}
+<div data-order data-pay="unpaid" data-ful="none" data-deadline="{{ o['pay_deadline'] }}" data-status="{{ url_for('web.order_status', order_no=o['order_no'], t=token or None) }}">
+<div class="pay-grid">
+  <div class="card slip">
+    {% if qr %}<div class="qr">{{ qr|safe }}</div><div class="amount"><small>¥</small>{{ o['amount_cents']|yuan }}</div><div class="muted">打开支付宝，扫一扫</div>
+    {% else %}<div class="amount"><small>¥</small>{{ o['amount_cents']|yuan }}</div><p class="muted">付款二维码还没有生成。</p>
+      <form method="post" action="{{ url_for('web.order_qr', order_no=o['order_no'], t=token or None) }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><button class="btn block">重新获取二维码</button></form>{% endif %}
+  </div>
+  <div>
+    <h1 class="state-h"><span class="pulse"></span>等待付款</h1>
+    <p>请在 <span class="countdown" id="left">--:--</span> 内完成付款。超时订单会自动关闭。付款成功后本页会自动跳转，不需要刷新。</p>
+    <dl class="facts" style="margin-top:18px"><dt>订单号</dt><dd class="order-no">{{ o['order_no'] }}</dd><dt>商品</dt><dd>{{ o['product_name'] }}{% if o['quantity']>1 %} × {{ o['quantity'] }}{% endif %}</dd>
+      {% if o['product_type']=='api_recharge' %}<dt>充值账号</dt><dd>{{ o['recharge_email']|mask_email }}</dd><dt>地区</dt><dd>{{ o['recharge_region']|region_name }}</dd>{% endif %}
+      <dt>付款方式</dt><dd>支付宝</dd></dl>
+    {% if token %}<div class="keep"><p><b>请收藏这个页面。</b>这条链接是你找回订单的专属凭证，别发给别人。</p><button type="button" class="btn ghost sm" data-copy="{{ request.url }}">复制链接</button></div>{% endif %}
+  </div>
+</div></div>
+{% endblock %}
