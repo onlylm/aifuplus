@@ -13,7 +13,11 @@ MAX_AUTH_JSON = 20000
 
 
 class OrderError(Exception):
-    pass
+    """A problem the buyer can fix. `field` tells the checkout dialog which input to highlight."""
+
+    def __init__(self, msg, field=""):
+        super().__init__(msg)
+        self.field = field
 
 
 def _hash_token(t):
@@ -27,25 +31,25 @@ def new_order_no(now):
 def parse_recharge_input(auth_text):
     auth_text = (auth_text or "").strip()
     if not auth_text:
-        raise OrderError("请粘贴充值凭证")
+        raise OrderError("请粘贴充值凭证", "session")
     if len(auth_text) > MAX_AUTH_JSON:
-        raise OrderError("充值凭证过长，请确认复制的是正确内容")
+        raise OrderError("充值凭证过长，请确认复制的是正确内容", "session")
     try:
         data = json.loads(auth_text)
     except ValueError:
-        raise OrderError("充值凭证格式不对，请按说明重新复制完整内容")
+        raise OrderError("充值凭证格式不对，请按说明重新复制完整内容", "session")
     if not isinstance(data, dict):
-        raise OrderError("充值凭证格式不对，请按说明重新复制完整内容")
+        raise OrderError("充值凭证格式不对，请按说明重新复制完整内容", "session")
     token = data.get("accessToken")
     acct = data.get("account_id") or data.get("accountId")
     user = data.get("user") if isinstance(data.get("user"), dict) else {}
     email = user.get("email")
     if not (isinstance(token, str) and token.strip()):
-        raise OrderError("充值凭证里缺少账号授权信息，请重新复制完整内容")
+        raise OrderError("充值凭证里缺少账号授权信息，请重新提交有效的充值凭证", "session")
     if not (isinstance(acct, str) and acct.strip()):
-        raise OrderError("充值凭证里缺少账号标识，请重新复制完整内容")
+        raise OrderError("充值凭证里缺少账号标识，请重新提交有效的充值凭证", "session")
     if not (isinstance(email, str) and "@" in email):
-        raise OrderError("充值凭证里缺少账号邮箱，请重新复制完整内容")
+        raise OrderError("充值凭证里缺少账号邮箱，没有识别到充值账号，请重新提交有效的充值凭证", "session")
     return data, email.strip()
 
 
@@ -60,10 +64,10 @@ def _recharge_price(conn, p, region):
     if pricing_service.has_variants(conn, p["plan_id"]):
         v = pricing_service.variant_for_sale(conn, p["plan_id"], region)
         if v is None:
-            raise OrderError("这个地区暂时不能购买，请选择其他地区")
+            raise OrderError("这个地区暂时不能购买，请选择其他地区", "region")
         return v["sale_price_cny"], v, region
     if region not in p["regions"].split(","):
-        raise OrderError("请选择有效的充值地区")
+        raise OrderError("请选择有效的充值地区", "region")
     return p["price_cents"], None, region
 
 
@@ -86,7 +90,7 @@ def create_order(core, product_id, quantity, user_id=None, contact="", recharge_
     contact = (contact or "").strip()[:100]
     lookup_email = (lookup_email or "").strip().lower()
     if not EMAIL_RE.match(lookup_email) or len(lookup_email) > 120:
-        raise OrderError("请填写有效的查单邮箱")
+        raise OrderError("请填写有效的联系邮箱", "contact")
     now = core.now()
     window = cfg["order_timeout_minutes"] * 60
     guest_token = None if user_id else secrets.token_urlsafe(32)
@@ -94,7 +98,7 @@ def create_order(core, product_id, quantity, user_id=None, contact="", recharge_
     with tx(core.conn) as c:
         p = c.execute("SELECT * FROM products WHERE id=?", (product_id,)).fetchone()
         if not p or not p["enabled"]:
-            raise OrderError("商品不存在或已下架")
+            raise OrderError("这个套餐暂时不能购买，请刷新页面后重新选择", "product")
         if not 1 <= quantity <= p["max_per_order"]:
             raise OrderError("数量需在 1~%d" % p["max_per_order"])
         unit_price, variant = p["price_cents"], None
@@ -131,7 +135,7 @@ def preview_order(core, product_id, quantity, recharge_auth_text="", region="", 
     """Validate exactly what create_order would validate, without creating anything (for the confirm step)."""
     p = core.conn.execute("SELECT * FROM products WHERE id=?", (product_id,)).fetchone()
     if not p or not p["enabled"]:
-        raise OrderError("商品不存在或已下架")
+        raise OrderError("这个套餐暂时不能购买，请刷新页面后重新选择", "product")
     try:
         quantity = int(quantity)
     except (TypeError, ValueError):
@@ -140,7 +144,7 @@ def preview_order(core, product_id, quantity, recharge_auth_text="", region="", 
         raise OrderError("数量需在 1~%d" % p["max_per_order"])
     lookup_email = (lookup_email or "").strip().lower()
     if not EMAIL_RE.match(lookup_email) or len(lookup_email) > 120:
-        raise OrderError("请填写有效的查单邮箱")
+        raise OrderError("请填写有效的联系邮箱", "contact")
     out = {"product": p, "quantity": quantity, "amount_cents": p["price_cents"] * quantity, "lookup_email": lookup_email,
            "region": "", "account_email": ""}
     if p["type"] == "card":

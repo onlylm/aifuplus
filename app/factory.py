@@ -24,6 +24,7 @@ def create_app(core=None, secret_key=None, start_worker=False):
     app.config["SESSION_COOKIE_SECURE"] = os.environ.get("PUBLIC_BASE_URL", "").startswith("https://")
     app.config["MAX_CONTENT_LENGTH"] = 4 * 1024 * 1024
     app.core = core
+    app.json.ensure_ascii = False          # readable Chinese in JSON (the checkout dialog embeds plan data in the page)
 
     @app.template_global()
     def asset_url(filename):

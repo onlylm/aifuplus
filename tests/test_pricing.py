@@ -431,6 +431,7 @@ def test_guest_buys_a_variant_without_login_and_gets_recharged(env):
     assert "/pay/" in loc and [r for r in env.upstream.requests if r[0] == "POST"] == []    # no recharge is submitted before payment
     env.alipay.pay(no)
     env.post_notify(env.alipay.notify_form(no))
+    worker.sweep_once(env.core)                                                  # recharges are submitted by the worker only
     sent = env.upstream.tasks["%s-1" % no]["body"]
     assert sent["planId"] == PLUS and sent["checkoutCountry"] == "PH" and sent["paymentSource"] == "auto_card"
     assert env.alipay.trades[no]["amount"] == "138.24"

@@ -1,0 +1,57 @@
+<div class="co" id="co" hidden>
+  <div class="co-backdrop"></div>
+  <div class="co-dialog" role="dialog" aria-modal="true" aria-labelledby="co-title" tabindex="-1">
+    <header class="co-head">
+      <div class="co-head-l"><div class="co-plan" id="co-title">ChatGPT 套餐</div><div class="co-price"><small>¥</small><span id="co-price">--</span></div></div>
+      <div class="co-head-r"><span class="co-state" id="co-state">待填写</span><button type="button" class="co-x" id="co-close" aria-label="关闭">×</button></div>
+    </header>
+    <ol class="co-steps" id="co-steps" aria-label="下单步骤"><li data-s="1">填写资料</li><li data-s="2">确认订单</li><li data-s="3">支付订单</li><li data-s="4">充值结果</li></ol>
+    <div class="co-body" id="co-body">
+
+      <section class="co-pane" data-pane="1">
+        <div class="co-field"><div class="co-label" id="co-region-label">套餐地区</div><div class="co-regions" id="co-regions" role="radiogroup" aria-labelledby="co-region-label"></div><div class="co-err" data-err="region" hidden></div></div>
+        <div class="co-field"><label class="co-label" for="co-contact">联系邮箱</label>
+          <input class="co-input" id="co-contact" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" maxlength="120">
+          <div class="co-hint">用于查询订单、接收结果和联系客服，不一定是 ChatGPT 登录邮箱。</div><div class="co-err" data-err="contact" hidden></div></div>
+        <div class="co-field"><label class="co-label" for="co-session">提交充值凭证</label>
+          <textarea class="co-input co-area" id="co-session" spellcheck="false" autocomplete="off" autocapitalize="off" placeholder="把复制好的充值凭证粘贴到这里"></textarea>
+          <ul class="co-check" id="co-check"><li data-k="account">已识别充值账号</li><li data-k="valid">充值凭证完整</li><li data-k="ready">可以创建订单</li></ul>
+          <div class="co-account" id="co-account" hidden>待充值账号：<b id="co-account-email"></b></div>
+          <div class="co-err" data-err="session" hidden></div>
+          <details class="co-guide"><summary>怎么获取充值凭证？</summary>
+            <ol>{% for line in (site['session_guide'] or default_guide).splitlines() if line.strip() %}<li>{{ line.strip() }}</li>{% endfor %}</ol>
+            {% if site['session_guide_url'] %}<a class="btn ghost sm" href="{{ site['session_guide_url'] }}" target="_blank" rel="noopener">打开获取页面</a>{% endif %}
+            <p class="co-hint">我们不需要你的账号密码。凭证只用于本次充值，加密保存，充值完成后立即删除。</p></details></div>
+      </section>
+
+      <section class="co-pane" data-pane="2" hidden>
+        <dl class="co-facts">
+          <dt>套餐</dt><dd id="co-s-plan"></dd><dt>套餐地区</dt><dd id="co-s-region"></dd><dt>联系邮箱</dt><dd id="co-s-contact"></dd>
+          <dt>应付金额</dt><dd class="co-money">¥<span id="co-s-amount"></span></dd></dl>
+        <div class="co-account co-account-big">待充值账号：<b id="co-s-account"></b></div>
+        <label class="co-confirm"><input type="checkbox" id="co-confirm"><span>我已确认充值账号、套餐地区和付款金额无误</span></label>
+        <div class="co-err" data-err="confirm" hidden></div>
+        <p class="co-hint">点击后只会生成付款二维码，付款成功后才会开始充值。</p>
+      </section>
+
+      <section class="co-pane" data-pane="3" hidden>
+        <div class="co-pay">
+          <div class="co-qr" id="co-qr" aria-live="polite"></div>
+          <div class="co-pay-info">
+            <div class="co-money-big">¥<span id="co-p-amount"></span></div>
+            <div class="co-wait"><span class="co-dot"></span><span id="co-p-status">等待付款</span></div>
+            <div class="co-hint">请使用支付宝扫码，<span id="co-p-left"></span> 内完成付款。付款后这里会自动更新。</div>
+            <dl class="co-facts co-facts-sm"><dt>订单号</dt><dd class="co-mono" id="co-p-order"></dd></dl>
+          </div>
+        </div>
+        <div class="co-err" data-err="pay" hidden></div>
+      </section>
+
+      <section class="co-pane" data-pane="4" hidden>
+        <div class="co-result" id="co-result"></div>
+      </section>
+    </div>
+    <div class="co-err co-err-main" id="co-error" role="alert" hidden></div>
+    <footer class="co-foot" id="co-foot"></footer>
+  </div>
+</div>

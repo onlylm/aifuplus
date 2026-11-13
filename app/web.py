@@ -1,5 +1,6 @@
 """Buyer-facing pages, login, order lookup, Alipay notify endpoint."""
 import io
+import json
 import re
 import threading
 import time
@@ -10,7 +11,7 @@ from flask import (Blueprint, abort, current_app, flash, jsonify, redirect, rend
                    session, url_for)
 
 from . import alipay as ali
-from . import fulfillment, orders, payments, pricing_service, site
+from . import fulfillment, humanize, orders, payments, pricing_service, site
 from .security import check_password_hash, hash_password
 
 bp = Blueprint("web", __name__)
@@ -101,16 +102,10 @@ def _regions_for(p):
 
 @bp.route("/")
 def index():
-    rows = core().conn.execute("SELECT * FROM products WHERE enabled=1").fetchall()
-    recharge = []
-    for p in sorted([p for p in rows if p["type"] == "api_recharge"], key=_plan_order):
-        regs = _regions_for(p)
-        if regs:                                  # a plan with every region closed is not shown at all
-            recharge.append({"p": p, "regions": regs, "min_price": min(r["price"] for r in regs)})
-    cards = [(p, _stock(p["id"])) for p in rows if p["type"] == "card"]
-    min_price = min([r["min_price"] for r in recharge], default=None)
+    plans = _checkout_plans()          # only the plans that currently have a sellable region
+    min_price = min([p["min_price"] for p in plans], default=None)
     faq = site.parse_faq(site.get_all(core().conn)["faq"] or site.DEFAULT_FAQ)
-    return render_template("index.html", recharge=recharge, cards=cards, min_price=min_price, faq=faq[:5])
+    return render_template("index.html", plans=plans, min_price=min_price, faq=faq[:5])
 
 
 @bp.route("/help")
@@ -295,3 +290,163 @@ def alipay():
     form = {k: v for k, v in request.form.items()}
     body, status = payments.handle_notify(core(), form)
     return body, status, {"Content-Type": "text/plain; charset=utf-8"}
+
+
+# ======================================================================================
+# Checkout dialog JSON API (no account needed). Prices always come from the server.
+# The full account e-mail is returned ONLY to the buyer who just submitted the credential,
+# never placed in a URL, never logged.
+# ======================================================================================
+def _checkout_plans():
+    """The cards on the home page: only products that currently have something sellable."""
+    rows = core().conn.execute("SELECT * FROM products WHERE enabled=1 AND type='api_recharge'").fetchall()
+    out = []
+    for p in sorted(rows, key=_plan_order):
+        regs = _regions_for(p)
+        if not regs:
+            continue
+        out.append({"id": p["id"], "name": p["name"], "min_price": min(r["price"] for r in regs),
+                    "min_price_text": ali.format_cents(min(r["price"] for r in regs)),
+                    "varies": len({r["price"] for r in regs}) > 1,
+                    "regions": [{"code": r["code"], "label": humanize.region_name(r["code"]), "price": r["price"],
+                                 "price_text": ali.format_cents(r["price"])} for r in regs]})
+    return out
+
+
+def _json_error(message, field="", status=400):
+    return jsonify(ok=False, field=field, message=message), status
+
+
+def _body():
+    d = request.get_json(silent=True)
+    return d if isinstance(d, dict) else {}
+
+
+def _session_text(d):
+    v = d.get("session", "")
+    return json.dumps(v) if isinstance(v, (dict, list)) else str(v or "")
+
+
+def _stage(o, f):
+    if o["payment_status"] == "unpaid":
+        return "pay"
+    if o["payment_status"] == "closed":
+        return "closed"
+    if f["status"] == "delivered":
+        return "done"
+    if f["status"] in ("blocked", "failed", "manual"):
+        return "attention"
+    return "recharging"
+
+
+def _status_payload(o, f):
+    stage = _stage(o, f)
+    msg = {"pay": "等待付款", "closed": "订单已超时关闭", "done": "充值完成",
+           "attention": "充值暂时没有完成，付款记录已保存，请联系客服处理", "recharging": "已收到付款，正在充值"}[stage]
+    return {"ok": True, "stage": stage, "message": msg, "order_no": o["order_no"], "amount_text": ali.format_cents(o["amount_cents"]),
+            "has_qr": bool(o["qr_code"]), "submitted": bool(f["upstream_task_id"]), "deadline": o["pay_deadline"],
+            "account_masked": humanize.mask_email(o["recharge_email"]), "plan": o["snap_plan_label"] or o["product_name"],
+            "region": o["snap_region_label"] or humanize.region_name(o["recharge_region"])}
+
+
+@bp.route("/api/checkout/plans")
+def api_plans():
+    return jsonify(ok=True, plans=_checkout_plans())
+
+
+@bp.route("/api/checkout/validate", methods=["POST"])
+def api_validate():
+    if not throttle("co-validate:" + (request.remote_addr or ""), 40, 60):
+        return _json_error("操作太频繁，请稍等一会儿再试", status=429)
+    d = _body()
+    try:
+        pid = int(d.get("product_id") or 0)
+    except (TypeError, ValueError):
+        pid = 0
+    try:
+        prev = orders.preview_order(core(), pid, 1, _session_text(d), str(d.get("region", "")), str(d.get("contact_email", "")))
+    except orders.OrderError as e:
+        return _json_error(str(e), e.field)
+    p = prev["product"]
+    if p["type"] != "api_recharge":
+        return _json_error("这个套餐暂时不能购买，请刷新页面后重新选择", "product")
+    return jsonify(ok=True, plan=p["name"], region_code=prev["region"], region_label=humanize.region_name(prev["region"]),
+                   amount_cents=prev["amount_cents"], amount_text=ali.format_cents(prev["amount_cents"]),
+                   account_email=prev["account_email"], contact_email=prev["lookup_email"])
+
+
+@bp.route("/api/checkout/order", methods=["POST"])
+def api_create_order():
+    """Creates an UNPAID order and its payment QR code. Nothing is sent upstream here - ever."""
+    if not throttle("co-order:" + (request.remote_addr or ""), 10, 60):
+        return _json_error("操作太频繁，请稍等一会儿再试", status=429)
+    d = _body()
+    if d.get("confirmed") is not True:
+        return _json_error("请先勾选「我已确认充值账号、套餐地区和付款金额无误」", "confirm")
+    try:
+        pid = int(d.get("product_id") or 0)
+    except (TypeError, ValueError):
+        pid = 0
+    try:
+        order_no, token = orders.create_order(core(), pid, 1, user_id=None, recharge_auth_text=_session_text(d),
+                                              region=str(d.get("region", "")), lookup_email=str(d.get("contact_email", "")))
+    except orders.OrderError as e:
+        return _json_error(str(e), e.field)
+    try:
+        orders.ensure_qr(core(), order_no)
+    except ali.AlipayError:
+        payments.close_local(core(), order_no, alipay_confirmed=False)
+        return _json_error("支付宝暂时无法生成付款码，订单没有创建，请稍后再试")
+    except Exception:       # keep the order; the dialog offers “重新获取二维码”
+        pass
+    o = orders.get_by_no(core().conn, order_no)
+    f = core().conn.execute("SELECT * FROM fulfillments WHERE order_id=?", (o["id"],)).fetchone()
+    data = _status_payload(o, f)
+    data.update(token=token, qr_svg=qr_svg(o["qr_code"]) if o["qr_code"] else "")
+    return jsonify(data)
+
+
+@bp.route("/api/orders/<order_no>/status")
+def api_order_status(order_no):
+    o, _full = _access(order_no)
+    c = core()
+    if o["payment_status"] == "unpaid" and o["precreate_attempted"] and c.now() - o["last_query_at"] >= 8:
+        try:
+            payments.check_payment(c, order_no)
+        except Exception:
+            pass
+        o = orders.get_by_no(c.conn, order_no)
+    f = c.conn.execute("SELECT * FROM fulfillments WHERE order_id=?", (o["id"],)).fetchone()
+    return jsonify(_status_payload(o, f))
+
+
+@bp.route("/api/orders/<order_no>/check", methods=["POST"])
+def api_order_check(order_no):
+    """The “我已完成付款” button: ask Alipay right now (at most once every 3 seconds per order)."""
+    o, _full = _access(order_no)
+    c = core()
+    if o["payment_status"] == "unpaid" and o["precreate_attempted"] and c.now() - o["last_query_at"] >= 3:
+        try:
+            payments.check_payment(c, order_no)
+        except Exception:
+            pass
+        o = orders.get_by_no(c.conn, order_no)
+    f = c.conn.execute("SELECT * FROM fulfillments WHERE order_id=?", (o["id"],)).fetchone()
+    return jsonify(_status_payload(o, f))
+
+
+@bp.route("/api/orders/<order_no>/qr", methods=["POST"])
+def api_order_qr(order_no):
+    o, _full = _access(order_no)
+    err = ""
+    try:
+        orders.ensure_qr(core(), o["order_no"])
+    except ali.AlipayError:
+        err = "支付宝暂时无法生成付款码，请稍后重试"
+    except Exception:
+        err = "暂时无法获取付款码，请稍后重试"
+    o = orders.get_by_no(core().conn, order_no)
+    f = core().conn.execute("SELECT * FROM fulfillments WHERE order_id=?", (o["id"],)).fetchone()
+    data = _status_payload(o, f)
+    data.update(qr_svg=qr_svg(o["qr_code"]) if (o["qr_code"] and o["payment_status"] == "unpaid") else "", error=err)
+    return jsonify(data)

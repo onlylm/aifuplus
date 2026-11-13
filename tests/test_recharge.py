@@ -17,8 +17,10 @@ def buy_recharge(env, pid=None, region="PH", auth=AUTH):
 
 
 def pay(env, no):
+    """Buyer pays (notification arrives). Recharges are submitted upstream only by the worker, so run one worker tick."""
     env.alipay.pay(no)
     assert env.post_notify(env.alipay.notify_form(no)).data == b"success"
+    sweep_once(env.core)
 
 
 def coid(no, n=1):
@@ -147,6 +149,8 @@ def test_upstream_failed_task_admin_retry_uses_new_client_order_id(env):
     assert f["status"] == "failed" and f["upstream_status"] == "failed"
     oid = env.order(no)["id"]
     assert fulfillment.admin_retry(env.core, oid) is True
+    assert env.upstream.created == 1                                  # the admin button only queues it...
+    sweep_once(env.core)                                              # ...the worker submits
     assert env.upstream.created == 2 and coid(no, 2) in env.upstream.tasks
     env.upstream.set_status(coid(no, 2), "succeeded")
     env.t[0] += 10
@@ -163,6 +167,7 @@ def test_manual_review_requires_human_and_retry_only_repolls(env):
     assert env.ful(no)["status"] == "manual"
     oid = env.order(no)["id"]
     fulfillment.admin_retry(env.core, oid)
+    sweep_once(env.core)
     assert env.upstream.created == 1                              # no duplicate recharge
     assert env.ful(no)["status"] == "manual"
     assert fulfillment.admin_mark(env.core, oid, True) is True
@@ -177,8 +182,8 @@ def test_operator_error_blocks_with_reason_then_retry_after_fix(env):
     assert f["status"] == "blocked" and f["reason_code"] == "card_platform_not_bound" and "卡台" in f["reason"]
     assert env.order(no)["payment_status"] == "paid"
     assert fulfillment.admin_retry(env.core, env.order(no)["id"]) is True
+    sweep_once(env.core)
     assert env.upstream.created == 1
-    assert env.upstream.requests[-1][2] is None or True
     posts = [r[2]["clientOrderId"] for r in env.upstream.requests if r[0] == "POST"]
     assert posts == [coid(no), coid(no)]                         # rejected-without-task => same id (idempotent)
 
@@ -201,6 +206,7 @@ def test_upstream_unconfigured_after_payment_is_blocked_and_recoverable(env):
     assert f["status"] == "blocked" and f["reason_code"] == "upstream_unconfigured"
     settings.save_upstream(env.core, True, "https://pro20x.com/api/v3/automate", "", "")
     fulfillment.admin_retry(env.core, env.order(no)["id"])
+    sweep_once(env.core)
     assert env.upstream.created == 1
 
 
