@@ -74,7 +74,7 @@ def create_app(core=None, secret_key=None, start_worker=False):
     def headers(resp):
         resp.headers["X-Content-Type-Options"] = "nosniff"
         resp.headers["X-Frame-Options"] = "DENY"
-        if request.method != "GET" or request.path.startswith(("/order", "/pay", "/my", "/admin")):
+        if request.method != "GET" or request.path.startswith(("/order", "/pay", "/my", "/admin", "/api/orders/")):
             resp.headers["Cache-Control"] = "no-store"
             resp.headers["Referrer-Policy"] = "no-referrer"
         return resp
