@@ -46,24 +46,29 @@
     } else { var m = $('#co-error'); m.textContent = msg; m.hidden = false; }
   }
 
-  /* ---------- credential parsing (display only; the server re-validates everything) ---------- */
+  /* ---------- credential parsing (display-only hints; the server alone decides validity) ---------- */
   function parseSession(text) {
-    var out = { email: '', token: false, acct: false };
+    /* Preliminary format check only. Do NOT require top-level account_id — normalize_session() fills it. */
+    var out = { email: '', token: false, json: false };
     try {
       var d = JSON.parse(text);
       if (d && typeof d === 'object') {
+        out.json = true;
         out.email = (d.user && typeof d.user.email === 'string' && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(d.user.email)) ? d.user.email.trim() : '';
         out.token = typeof d.accessToken === 'string' && !!d.accessToken.trim();
-        out.acct = !!(d.account_id || d.accountId);
       }
     } catch (e) {}
     return out;
   }
+  function canGoNext(d, p) {
+    return !!(p.json && p.email && p.token && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test((d.contact || '').trim()) && S.region);
+  }
   function refreshCheck() {
     var d = drafts[S.plan.id], p = parseSession(d.session || '');
-    var okAll = p.email && p.token && p.acct && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test((d.contact || '').trim()) && !!S.region;
+    var ready = canGoNext(d, p);
     var mark = function (k, ok) { $('[data-k=' + k + ']').classList.toggle('ok', !!ok); };
-    mark('account', p.email); mark('valid', p.email && p.token && p.acct); mark('ready', okAll);
+    /* Labels mean "declared / ready to submit", not "server-verified". */
+    mark('account', !!p.email); mark('valid', !!(p.email && p.token)); mark('ready', ready);
     var box = $('#co-account');
     box.hidden = !p.email;
     $('#co-account-email').textContent = p.email;
@@ -113,7 +118,7 @@
     var f = $('#co-foot'); f.innerHTML = '';
     if (S.step === 1) {
       var d = drafts[S.plan.id], p = parseSession(d.session || '');
-      var ready = p.email && p.token && p.acct && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test((d.contact || '').trim()) && !!S.region;
+      var ready = canGoNext(d, p);
       f.appendChild(btn('下一步：确认订单', 'dark', 'co-next', toConfirm, !ready || S.busy));
     } else if (S.step === 2) {
       f.appendChild(btn('返回修改', 'ghost', 'co-back', function () { goStep(1); }));

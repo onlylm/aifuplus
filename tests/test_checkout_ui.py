@@ -54,7 +54,7 @@ def test_only_four_gpt_cards_on_the_home_page(env):
 def test_dialog_markup_has_the_copy_the_brief_asks_for(env):
     ready(env)
     home = env.app.test_client().get("/").data.decode()
-    for text in ("套餐地区", "联系邮箱", "提交充值凭证", "不一定是 ChatGPT 登录邮箱", "已识别充值账号", "充值凭证完整", "可以创建订单",
+    for text in ("套餐地区", "联系邮箱", "提交充值凭证", "不一定是 ChatGPT 登录邮箱", "已识别充值账号邮箱", "等待系统验证充值凭证", "可以提交核对",
                  "怎么获取充值凭证？", "我已确认充值账号、套餐地区和付款金额无误", "待充值账号", "我已完成付款" if False else "支付订单"):
         assert text in home, text
     js = (STATIC / "checkout.js").read_text(encoding="utf-8")
