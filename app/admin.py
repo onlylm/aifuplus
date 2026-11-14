@@ -2,7 +2,7 @@
 import secrets
 from functools import wraps
 
-from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, url_for
+from flask import Blueprint, abort, current_app, flash, jsonify, redirect, render_template, request, url_for
 
 from . import alipay as ali
 from . import catalog, fulfillment, ops, payments, pricing, pricing_service, settings, site, upstream_sync
@@ -169,20 +169,80 @@ def upstream_sync_plans():
 
 
 # ---- products -------------------------------------------------------------
+def _decorate_cards(cards, fx_micro):
+    """Display-only extras for the pricing table (no pricing rules here): formatted strings and a few flags."""
+    for pc in cards:
+        for v in pc["variants"]:
+            v["has_cost"] = v["effective_package_cost_cny"] is not None
+            v["has_up"] = v["upstream_cost_usd_cents"] is not None
+            v["up_ok"] = bool(v["has_up"] and fx_micro)
+            v["up_cny"] = (pricing.fmt_cny(pricing.usd_cents_to_cny_fen(v["upstream_cost_usd_cents"], fx_micro))
+                           if v["up_ok"] else "")
+            v["mode_text"] = pricing.MODE_TEXT.get(v["pricing_mode"], v["pricing_mode"])
+    return cards
+
+
+def _variant_json(v):
+    f = pricing.fmt_cny
+    return {
+        "id": v["id"], "enabled": bool(v["enabled"]), "can_sell": bool(v["can_sell"]), "has_cost": bool(v["has_cost"]),
+        "status": "销售中" if v["enabled"] else "未销售", "mode": v["pricing_mode"], "mode_text": v["mode_text"],
+        "price": ("¥" + f(v["sale_price_cny"])) if v["sale_price_cny"] is not None else "未定价",
+        "package_cost": ("¥" + f(v["effective_package_cost_cny"])) if v["has_cost"] else "未填写",
+        "other_cost": "¥" + f(v["other_cost_cny"]),
+        "total_cost": ("¥" + f(v["total_cost_cny"])) if v["total_cost_cny"] is not None else "-",
+        "profit": ("¥" + f(v["profit"])) if v["profit"] is not None else "暂无成本，无法计算",
+        "loss": bool(v["loss"]), "cost_note": v["cost_note"], "anomaly": v["anomaly"], "anomaly_detail": v["anomaly_detail"],
+        "up_ok": bool(v["up_ok"]),
+        "fields": {"cost_source": v["cost_source"], "manual_cost": f(v["manual_package_cost_cny"]) if v["manual_package_cost_cny"] is not None else "",
+                   "other_cost": f(v["other_cost_cny"]), "mode": v["pricing_mode"], "markup": "%g" % (v["markup_basis_points"] / 100),
+                   "fixed_profit": f(v["fixed_profit_cny"]), "retail": f(v["manual_sale_price_cny"]) if v["manual_sale_price_cny"] else "",
+                   "rounding": v["rounding"]},
+    }
+
+
+def _plan_payload(plan_id):
+    fx_micro = pricing_service.effective_fx(pricing_service.get_settings(core().conn))
+    pc = next(x for x in _decorate_cards(pricing_service.plan_cards(core()), fx_micro) if x["plan_id"] == plan_id)
+    return {"variants": [_variant_json(v) for v in pc["variants"]],
+            "summary": {"live": pc["live"], "total": pc["total"], "min_price": ("¥" + pricing.fmt_cny(pc["min_price"])) if pc["min_price"] else "暂无",
+                        "strategy": pc["strategy"]}}
+
+
 @bp.route("/products")
 @admin_required
 def products():
     plan_ids = tuple(pricing_service.ALLOWED)
     rows = core().conn.execute("SELECT * FROM products WHERE plan_id NOT IN (%s) ORDER BY id DESC" % ",".join("?" * len(plan_ids)), plan_ids).fetchall()
     stocks = {r["id"]: catalog.stock_counts(core().conn, r["id"]) for r in rows}
-    return render_template("admin/products.html", rows=rows, stocks=stocks, cards=pricing_service.plan_cards(core()),
-                           fx=pricing_service.fx_view(core()), stale=pricing_service.staleness(core()),
+    fxv = pricing_service.fx_view(core())
+    cards = _decorate_cards(pricing_service.plan_cards(core()), fxv["effective"])
+    active = request.args.get("plan", "")
+    if active not in pricing_service.ALLOWED:
+        active = next((c["plan_id"] for c in cards if c["total"]), cards[0]["plan_id"])
+    return render_template("admin/products.html", rows=rows, stocks=stocks, cards=cards, fx=fxv, stale=pricing_service.staleness(core()),
                            audit=pricing_service.recent_audit(core().conn, 12), rounding_text=pricing.ROUNDING_TEXT,
+                           mode_text=pricing.MODE_TEXT, active=active, open_vid=request.args.get("edit", type=int),
                            upstream_ready=settings.get_upstream(core())["api_key_enc"] != "")
 
 
-def _back(plan_id=""):
-    return redirect(url_for("admin.products") + ("#plan-" + plan_id if plan_id else ""))
+def _ajax():
+    return request.headers.get("X-Requested-With") == "fetch"
+
+
+def _back(plan_id="", vid=None):
+    url = url_for("admin.products", **({"plan": plan_id} if plan_id else {}), **({"edit": vid} if vid else {}))
+    return redirect(url + (("#row-%d" % vid) if vid else ("#plan-" + plan_id if plan_id else "")))
+
+
+def _reply(plan_id, ok, message, vid=None, status=200):
+    """The pricing table saves in place (fetch -> JSON). Without JavaScript it falls back to flash + redirect to the same plan/row."""
+    if _ajax():
+        data = {"ok": ok, "message": message, "plan_id": plan_id}
+        data.update(_plan_payload(plan_id))
+        return jsonify(data), status
+    flash(message)
+    return _back(plan_id, vid)
 
 
 @bp.route("/pricing/sync", methods=["POST"])
@@ -235,42 +295,82 @@ def variant_toggle(vid):
     try:
         on = request.form.get("enabled") == "1"
         pricing_service.toggle_variant(core(), actor(), vid, on)
-        flash("已上架销售。" if on else "已关闭销售。关闭后，新用户将无法选择该地区，历史订单不受影响。")
+        return _reply(plan_id, True, "已上架销售。" if on else "已关闭销售。关闭后，新用户将无法选择该地区，历史订单不受影响。", vid)
     except pricing_service.PricingError as e:
-        flash(str(e))
-    return _back(plan_id)
+        return _reply(plan_id, False, str(e), vid, 400)
+
+
+def _has_cost_after(v, f, fx_micro):
+    """Would this region have a package cost after applying the submitted cost fields? (uses the existing cost helper)"""
+    src = f.get("cost_source") or v["cost_source"]
+    manual = v["manual_package_cost_cny"]
+    if f.get("manual_package_cost") is not None:
+        txt = str(f["manual_package_cost"]).strip()
+        try:
+            manual = pricing.parse_money_fen(txt) if txt else None
+        except ValueError:
+            return True                                    # a malformed number gets its own message from the service
+    eff, _ = pricing.effective_package_cost(src, v["upstream_cost_usd_cents"], manual, fx_micro)
+    return eff is not None
+
+
+NO_COST_MSG = "请先填写套餐成本。没有成本时，只能使用「直接设置零售价」；「按成本百分比加价」和「固定利润」需要先有套餐成本。"
 
 
 @bp.route("/variants/<int:vid>/update", methods=["POST"])
 @admin_required
 def variant_update(vid):
     plan_id = _variant_plan(vid)
+    f = request.form
+    v = dict(core().conn.execute("SELECT * FROM plan_variants WHERE id=?", (vid,)).fetchone())
+    mode = f.get("pricing_mode") or v["pricing_mode"]
+    if (f.get("manual_sale_price") or "").strip() and mode != "manual_retail":
+        # never silently ignore a typed retail price
+        return _reply(plan_id, False, "你填写了零售价，但当前选的定价方式是「%s」，这个价格不会生效。请选择「直接设置零售价」后再保存。"
+                      % pricing.MODE_TEXT.get(mode, mode), vid, 400)
+    if mode in ("percentage", "fixed") and not _has_cost_after(v, f, pricing_service.effective_fx(pricing_service.get_settings(core().conn))):
+        return _reply(plan_id, False, NO_COST_MSG, vid, 400)
     try:
-        pricing_service.update_variant(core(), actor(), vid, request.form)
-        flash("已保存，售价已重新计算。")
+        pricing_service.update_variant(core(), actor(), vid, f)
     except pricing_service.PricingError as e:
-        flash("保存失败：%s" % e)
-    return _back(plan_id)
+        return _reply(plan_id, False, "保存失败：%s" % e, vid, 400)
+    return _reply(plan_id, True, "已保存。", vid)
 
 
 @bp.route("/variants/<int:vid>/confirm", methods=["POST"])
 @admin_required
 def variant_confirm(vid):
     plan_id = _variant_plan(vid)
-    flash("已确认，新价格已生效。" if pricing_service.confirm_variant(core(), actor(), vid) else "这个地区没有待确认的价格。")
-    return _back(plan_id)
+    done = pricing_service.confirm_variant(core(), actor(), vid)
+    return _reply(plan_id, done, "已确认，新价格已生效。" if done else "这个地区没有待确认的价格。", vid, 200 if done else 400)
 
 
 @bp.route("/plans/<plan_id>/bulk", methods=["POST"])
 @admin_required
 def plan_bulk(plan_id):
-    ids = [int(x) for x in request.form.getlist("variant_ids") if x.isdigit()]
+    if plan_id not in pricing_service.ALLOWED:
+        abort(404)
+    f = request.form
+    ids = [int(x) for x in f.getlist("variant_ids") if x.isdigit()]
+    action = f.get("action", "")
+    value = f.get("value_" + action) if (f.get("value_" + action) or "").strip() else f.get("value", "")
+    skipped = []
+    if action in ("markup", "profit"):                       # these two need a package cost: apply only where there is one
+        rows = [dict(r) for r in core().conn.execute("SELECT * FROM plan_variants WHERE plan_id=? ORDER BY id", (plan_id,)).fetchall()]
+        chosen = [r for r in rows if not ids or r["id"] in set(ids)]
+        fx_micro = pricing_service.effective_fx(pricing_service.get_settings(core().conn))
+        eligible = [r for r in chosen if _has_cost_after(r, {}, fx_micro)]
+        skipped = [r["region_label"] for r in chosen if not _has_cost_after(r, {}, fx_micro)]
+        if not eligible:
+            return _reply(plan_id, False, "这些地区还没有套餐成本：%s。%s" % ("、".join(skipped), NO_COST_MSG), None, 400)
+        ids = [r["id"] for r in eligible]
     try:
-        flash(pricing_service.bulk(core(), actor(), plan_id, request.form.get("action", ""), ids,
-                                   {"value": request.form.get("value", ""), "rounding": request.form.get("rounding", "")}))
+        msg = pricing_service.bulk(core(), actor(), plan_id, action, ids, {"value": value, "rounding": f.get("rounding", "")})
+        if skipped:
+            msg += " 另有 %s 还没有套餐成本，已跳过（它们只能使用「直接设置零售价」）。" % "、".join(skipped)
+        return _reply(plan_id, True, msg)
     except pricing_service.PricingError as e:
-        flash("操作失败：%s" % e)
-    return _back(plan_id)
+        return _reply(plan_id, False, "操作失败：%s" % e, None, 400)
 
 
 def _form_regions():

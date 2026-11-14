@@ -240,7 +240,8 @@ def test_bulk_enable_disable_and_planwide_settings(env):
     c.post(url, data={"_csrf": tok, "action": "enable", "variant_ids": ids})
     assert var(env, PRO5, "EG")["enabled"] == 1 and var(env, PRO5, "CL")["enabled"] == 1 and var(env, PRO5, "JP")["enabled"] == 0
     c.post(url, data={"_csrf": tok, "action": "markup", "value": "30", "rounding": "yuan_up"})
-    assert var(env, PRO5, "EG")["markup_basis_points"] == 3000 and var(env, PRO5, "JP")["markup_basis_points"] == 3000
+    assert var(env, PRO5, "EG")["markup_basis_points"] == 3000
+    assert var(env, PRO5, "JP")["markup_basis_points"] == 2000                    # JP has no package cost: percentage markup is skipped, not silently saved
     assert var(env, PRO5, "EG")["sale_price_cny"] == pricing.compute_price(64800, "percentage", 3000, 0, "yuan_up")
     c.post(url, data={"_csrf": tok, "action": "profit", "value": "20", "variant_ids": ids})
     assert var(env, PRO5, "EG")["pricing_mode"] == "fixed" and var(env, PRO5, "JP")["pricing_mode"] == "percentage"
@@ -498,9 +499,9 @@ def test_admin_pricing_page_is_plain_language(env):
     for need in ("ChatGPT Plus", "ChatGPT Pro 5x", "ChatGPT Pro 20x", "ChatGPT Pro Max", "已上架地区", "最低售价", "最近成本同步", "当前定价策略",
                  "自动参考汇率", "实际计价汇率", "立即同步", "重新计算售价"):
         assert need in v, need
-    for need in ("展开地区管理", "上游参考成本", "套餐人民币成本", "其他成本", "总成本", "加价方式", "成本来源", "同步状态", "预计利润",
-                 "批量上架", "批量关闭", "统一百分比加价", "统一固定利润", "批量设置其他成本", "批量直接零售价", "直接设置零售价",
-                 "上架销售", "关闭销售",
+    for need in ("采用上游参考成本", "套餐人民币成本", "其他成本", "总成本", "定价方式", "预计利润", "零售价", "销售状态", "编辑",
+                 "批量上架", "批量关闭销售", "统一百分比加价", "统一固定利润", "批量设置其他成本", "批量设置零售价", "直接设置零售价",
+                 "按成本百分比加价", "固定利润", "上架销售", "关闭销售",
                  "关闭后，新用户将无法选择该地区，历史订单不受影响。"):
         assert need in page, need
     for bad in ("plus-monthly", "pro5x-monthly", "planId", "paymentSource", "wallet", "regionalDisplayPrices", "planRegions", "JSON"):

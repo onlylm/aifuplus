@@ -104,3 +104,66 @@ table.t td{padding:12px 8px;border-bottom:1px solid var(--line);vertical-align:t
 .bulk .g{display:grid;gap:4px}.bulk label{font-size:13px;color:var(--ink2);font-weight:700}.bulk input.t,.bulk select.t{min-height:38px;width:150px}
 .mini{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .audit li{padding:6px 0;border-bottom:1px solid var(--line);list-style:none}.audit{padding:0;margin:0}.audit small{color:var(--ink2)}
+
+/* ---------------- pricing table + drawer ---------------- */
+.pp-head{margin-bottom:12px}
+.pp-tabs{display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin-bottom:16px}
+.pp-tab{display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border:1px solid transparent;border-bottom:0;border-radius:12px 12px 0 0;background:transparent;color:var(--ink2);font:700 16px var(--sans);cursor:pointer;position:relative;top:1px}
+.pp-tab:hover{background:var(--bg2)}
+.pp-tab.on{background:var(--card);color:var(--ink);border-color:var(--line);box-shadow:inset 0 3px 0 var(--brand)}
+.pp-tab .n{font-size:12px;font-weight:700;background:var(--bg2);border-radius:999px;padding:0 8px;color:var(--ink2)}
+.warn-dot{width:8px;height:8px;border-radius:50%;background:var(--err)}
+.pp-title{font-size:20px}
+.pp-panel[hidden]{display:none}
+.pp-note{background:color-mix(in srgb,var(--warn) 10%,var(--card));border:1px solid var(--warn);border-radius:12px;padding:10px 14px;margin:12px 0;font-size:15px}
+.pp-bulk{margin:12px 0}
+.pp-bulk-row{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:flex-end;background:var(--bg2);border-radius:12px;padding:10px 14px}
+.pp-sel{font-weight:600;padding-bottom:8px}
+.pp-inp{display:inline-flex;gap:6px;align-items:flex-end;flex-wrap:wrap}.pp-inp label{display:block;width:100%;font-size:13px;color:var(--ink2);font-weight:700}
+.pp-inp input.t,.pp-inp select.t{min-height:36px;width:150px}
+.pp-msg,.pp-result{min-height:0;font-weight:600;font-size:15px;margin-top:8px}
+.pp-msg.show,.pp-result.show{padding:8px 12px;border-radius:10px;border:1px solid currentColor}
+.pp-msg.ok,.pp-result.ok{color:var(--ok);background:color-mix(in srgb,var(--ok) 8%,var(--card))}
+.pp-msg.bad,.pp-result.bad{color:var(--err);background:color-mix(in srgb,var(--err) 8%,var(--card))}
+.pp-scroll{overflow-x:auto;border:1px solid var(--line);border-radius:12px}
+.pp-table{width:100%;border-collapse:collapse;min-width:900px;font-size:15px}
+.pp-table th{position:sticky;top:0;background:var(--bg2);text-align:left;padding:9px 10px;font-size:13px;color:var(--ink2);font-weight:700;white-space:nowrap}
+.pp-table td{padding:10px;border-top:1px solid var(--line);vertical-align:top}
+.pp-table .c1{width:34px}.pp-table input[type=checkbox]{width:18px;height:18px;accent-color:var(--brand)}
+.pp-table tr.on td:first-child{box-shadow:inset 4px 0 0 var(--ok)}
+.pp-table tr.editing td{background:color-mix(in srgb,var(--brand) 9%,var(--card))}
+.pp-table tr.flash td{animation:ppflash 1.6s ease-out}
+@keyframes ppflash{from{background:color-mix(in srgb,var(--ok) 28%,var(--card))}to{background:transparent}}
+.pp-table .sub,.sub{font-size:12.5px;color:var(--ink2);font-weight:400}
+.pp-table .price{font:700 18px var(--serif)}
+.pp-table .dim{color:var(--ink2)}.pp-table .bad,.sub.bad{color:var(--err)}
+.pp-toggle{display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+.state{display:inline-flex;align-items:center;gap:6px;font-weight:800;padding:2px 12px;border-radius:999px;background:var(--bg2);font-size:13px}
+.state.on{background:var(--ok);color:#fff}.state.on::before{content:"●"}.state:not(.on)::before{content:"○"}
+.pp-backdrop{position:fixed;inset:0;background:rgba(26,24,20,.28);z-index:40}
+.pp-drawer{position:fixed;top:0;right:0;bottom:0;width:min(460px,100%);background:var(--card);border-left:1px solid var(--line);box-shadow:-18px 0 40px -24px rgba(0,0,0,.45);z-index:50;overflow-y:auto;padding:0}
+.pp-drawer[hidden],.pp-backdrop[hidden],.pp-dr[hidden]{display:none}
+.pp-dr{padding:0 20px 24px}
+.pp-dr-h{position:sticky;top:0;background:var(--card);display:flex;justify-content:space-between;gap:10px;align-items:flex-start;padding:16px 0 10px;border-bottom:1px solid var(--line);margin-bottom:12px;z-index:1}
+.pp-dr-h .t{font:700 19px var(--serif)}
+.pp-x{width:36px;height:36px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--ink);font-size:22px;cursor:pointer}
+.pp-sum{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;background:var(--bg2);border-radius:12px;padding:12px;margin-bottom:14px}
+.pp-sum div{display:flex;flex-direction:column}.pp-sum span{font-size:12.5px;color:var(--ink2)}.pp-sum b{font-size:16px}
+.pp-sum div:last-child{grid-column:1/-1}
+.pp-fs{border:1px solid var(--line);border-radius:12px;padding:10px 14px 14px;margin:0 0 14px}
+.pp-fs legend{font-weight:800;padding:0 6px}
+.pp-opt{display:flex;gap:10px;align-items:flex-start;padding:6px 0;font-weight:700;cursor:pointer}.pp-opt.off{opacity:.55;cursor:not-allowed}
+.pp-opt input,.pp-mode input{width:18px;height:18px;margin-top:3px;accent-color:var(--brand);flex:none}
+.pp-opt em,.pp-mode em{display:block;font-style:normal;font-weight:400;color:var(--ink2);font-size:13.5px}
+.pp-sub{margin:0 0 6px 28px}.pp-sub[hidden],.pp-pane[hidden]{display:none}
+.pp-warn{background:color-mix(in srgb,var(--warn) 12%,var(--card));border-left:5px solid var(--warn);border-radius:8px;padding:8px 12px;font-size:14px;margin-top:8px}
+.pp-modes{display:grid;gap:8px;margin-bottom:10px}
+.pp-mode{display:flex;gap:10px;align-items:flex-start;border:1.5px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer;background:var(--bg)}
+.pp-mode.on{border-color:var(--brand);box-shadow:0 0 0 3px color-mix(in srgb,var(--brand) 22%,transparent)}
+.pp-mode b{display:block}
+.pp-pane{margin-top:6px}.pp-pane .t{margin-bottom:8px}
+.pp-err{color:var(--err);font-weight:700;margin-top:8px}.pp-err[hidden],.pp-warn[hidden]{display:none}
+.pp-foot{display:flex;gap:10px;position:sticky;bottom:0;background:var(--card);padding:12px 0 4px;border-top:1px solid var(--line);margin-top:10px}
+.pp-foot .btn{flex:1}
+@media(max-width:700px){.pp-tab{padding:9px 12px}.pp-bulk-row{padding:10px}.pp-drawer{width:100%}}
+@media(prefers-reduced-motion:reduce){.pp-table tr.flash td{animation:none}}
