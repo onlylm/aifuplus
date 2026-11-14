@@ -6,7 +6,8 @@ from decimal import Decimal, InvalidOperation
 
 ROUNDINGS = ("cent", "yuan_up", "tail_90", "tail_99")
 ROUNDING_TEXT = {"cent": "保留两位小数", "yuan_up": "向上取整到整数元", "tail_90": "尾数调整为 .90", "tail_99": "尾数调整为 .99"}
-MODES = ("percentage", "fixed")
+MODES = ("percentage", "fixed", "manual_retail")
+MODE_TEXT = {"percentage": "按成本百分比加价", "fixed": "固定利润", "manual_retail": "直接设置零售价"}
 
 
 def _div_half_up(n, d):
@@ -92,8 +93,15 @@ def apply_rounding(price_fen, rounding):
     return price_fen
 
 
-def compute_price(total_cost_fen, mode, markup_bp, fixed_profit_fen, rounding):
-    """Markup is on COST (cost x (1 + p)), not a margin on price."""
+def compute_price(total_cost_fen, mode, markup_bp, fixed_profit_fen, rounding, manual_sale_fen=None):
+    """Markup is on COST (cost x (1 + p)), not a margin on price.
+
+    manual_retail: sale price is exactly the admin-entered fen (no rounding/markup).
+    """
+    if mode == "manual_retail":
+        if manual_sale_fen is None or manual_sale_fen <= 0:
+            raise ValueError("请填写大于 0 的零售价")
+        return int(manual_sale_fen)
     if mode == "percentage":
         raw = _div_half_up(total_cost_fen * (10_000 + markup_bp), 10_000)
     else:

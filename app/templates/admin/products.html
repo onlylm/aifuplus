@@ -45,7 +45,8 @@
         <button class="btn sm danger" name="action" value="disable" onclick="return confirm('关闭后，新用户将无法选择这些地区，历史订单不受影响。确定关闭吗？')">批量关闭</button></div></div>
       <div class="g"><label>数值（百分比 或 元）</label><input class="t" name="value" inputmode="decimal" placeholder="例如 20"></div>
       <div class="g"><label>售价取整（可不选）</label><select class="t" name="rounding"><option value="">保持各地区原设置</option>{% for k,l in rounding_text.items() %}<option value="{{ k }}">{{ l }}</option>{% endfor %}</select></div>
-      <div class="g"><label>整套餐统一设置（不勾选则对全部地区）</label><div class="actions"><button class="btn sm" name="action" value="markup">统一百分比加价</button><button class="btn sm" name="action" value="profit">统一固定利润</button><button class="btn sm" name="action" value="other_cost">批量设置其他成本</button></div></div>
+      <div class="g"><label>整套餐统一设置</label><div class="actions"><button class="btn sm" name="action" value="markup">统一百分比加价</button><button class="btn sm" name="action" value="profit">统一固定利润</button><button class="btn sm" name="action" value="other_cost">批量设置其他成本</button><button class="btn sm primary" name="action" value="retail">批量直接零售价</button></div></div>
+      <p class="help" style="margin:6px 0 0">加价、利润和其他成本在不勾选时作用于全部地区；「批量直接零售价」必须先勾选地区，且不会自动上架。数值填人民币金额。</p>
     </form>
     <div class="vgrid">
     {% for v in pc['variants'] %}
@@ -67,7 +68,7 @@
           <dt>其他成本</dt><dd>¥{{ v['other_cost_cny']|yuan }}</dd>
           <dt>总成本</dt><dd>{{ ('¥' ~ (v['total_cost_cny']|yuan)) if v['total_cost_cny'] is not none else '-' }}</dd>
           <dt>加价方式</dt><dd>{{ v['strategy'] }} · {{ rounding_text[v['rounding']] }}</dd>
-          <dt>预计利润</dt><dd>{{ ('¥' ~ (v['profit']|yuan)) if v['profit'] is not none else '-' }}</dd>
+          <dt>预计利润</dt><dd>{{ ('¥' ~ (v['profit']|yuan)) if v['profit'] is not none else '-' }}{% if v['loss'] %} <span class="chip bad">亏损</span>{% endif %}</dd>
           <dt>成本来源</dt><dd>{{ v['cost_note'] }}</dd>
           <dt>同步状态</dt><dd>{{ ('最近同步 ' ~ (v['upstream_synced_at']|dt)) if v['upstream_synced_at'] else '还没有同步' }}</dd></dl>
         <details class="adv" style="margin:0"><summary>单独设置这个地区</summary><div class="body">
@@ -75,9 +76,11 @@
             <label class="f" style="margin-top:0">套餐成本用哪一个</label><select class="t" name="cost_source"><option value="manual" {{ 'selected' if v['cost_source']=='manual' }}>使用我填写的人工成本</option><option value="upstream" {{ 'selected' if v['cost_source']=='upstream' }} {{ 'disabled' if v['upstream_cost_usd_cents'] is none }}>采用上游参考成本{{ '（上游暂未提供）' if v['upstream_cost_usd_cents'] is none }}</option></select>
             <div class="mini"><div><label class="f">人工套餐成本（元）</label><input class="t" name="manual_package_cost" value="{{ (v['manual_package_cost_cny']|yuan) if v['manual_package_cost_cny'] is not none else '' }}" inputmode="decimal"></div>
               <div><label class="f">其他成本（元）</label><input class="t" name="other_cost" value="{{ v['other_cost_cny']|yuan }}" inputmode="decimal"></div></div>
-            <label class="f">加价方式</label><select class="t" name="pricing_mode"><option value="percentage" {{ 'selected' if v['pricing_mode']=='percentage' }}>按成本百分比加价</option><option value="fixed" {{ 'selected' if v['pricing_mode']=='fixed' }}>固定利润</option></select>
+            <label class="f">加价方式</label><select class="t" name="pricing_mode"><option value="percentage" {{ 'selected' if v['pricing_mode']=='percentage' }}>按成本百分比加价</option><option value="fixed" {{ 'selected' if v['pricing_mode']=='fixed' }}>固定利润</option><option value="manual_retail" {{ 'selected' if v['pricing_mode']=='manual_retail' }}>直接设置零售价</option></select>
             <div class="mini"><div><label class="f">加价百分比（%）</label><input class="t" name="markup_percent" value="{{ '%g'|format(v['markup_basis_points']/100) }}" inputmode="decimal"></div>
               <div><label class="f">固定利润（元）</label><input class="t" name="fixed_profit" value="{{ v['fixed_profit_cny']|yuan }}" inputmode="decimal"></div></div>
+            <label class="f">直接零售价（元，仅「直接设置零售价」时使用）</label><input class="t" name="manual_sale_price" value="{{ (v['manual_sale_price_cny']|yuan) if v['manual_sale_price_cny'] is not none else '' }}" inputmode="decimal" placeholder="例如 128.00">
+            {% if v['loss'] %}<p class="help" style="margin:8px 0 0;color:var(--err)">当前零售价低于总成本，预计亏损 ¥{{ (-v['profit'])|yuan }}。仍可保存，请确认后再上架。</p>{% endif %}
             <label class="f">售价取整</label><select class="t" name="rounding">{% for k,l in rounding_text.items() %}<option value="{{ k }}" {{ 'selected' if v['rounding']==k }}>{{ l }}</option>{% endfor %}</select>
             <div class="actions" style="margin-top:12px"><button class="btn sm primary">保存并重新计算</button></div></form></div></details>
       </div>{% endfor %}

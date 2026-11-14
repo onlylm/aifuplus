@@ -4,6 +4,15 @@
 
 {% for key in ('upstream','fx') %}{% if stale[key]['level'] in ('warn','err') %}<div class="bar {{ stale[key]['level'] }}"><b>{{ '需要尽快处理' if stale[key]['level']=='err' else '提醒' }}</b>{{ stale[key]['text'] }} <a href="{{ url_for('admin.products') }}">去商品与定价页</a></div>{% endif %}{% endfor %}
 {% if anomalies %}<div class="bar err"><b>有价格异常，等待确认</b>成本或汇率变化超过了阈值，系统已暂停自动调价。<a href="{{ url_for('admin.products') }}">去确认</a></div>{% endif %}
+<p class="help" style="margin:0 0 10px">运营概览时区：{{ tz_label }} ·
+  <a href="?period=today">今天</a> · <a href="?period=7d">近 7 天</a> · <a href="?period=30d">近 30 天</a>
+  （当前：{{ ops_period }}）</p>
+<div class="grid" style="margin-bottom:12px">
+  <div class="stat"><div class="k">本窗口新建订单</div><div class="v">{{ ops_overview['new_orders'] }}</div><div class="h">按创建时间</div></div>
+  <div class="stat"><div class="k">本窗口已付款</div><div class="v">{{ ops_overview['paid_orders'] }}</div><div class="h">按付款时间 · 营业额 ¥{{ (ops_overview['revenue_cents'] or 0)|yuan }}</div></div>
+  <div class="stat"><div class="k">预计利润</div><div class="v">{% if ops_overview['profit_cents'] is none %}暂无数据{% else %}¥{{ ops_overview['profit_cents']|yuan }}{% endif %}</div><div class="h">仅统计有成本快照的已付款订单</div></div>
+  <div class="stat"><div class="k">新客户 / 复购</div><div class="v">{{ ops_overview['new_customers'] }} / {{ ops_overview['returning_customers'] }}</div><div class="h">按联系邮箱 · 创建时间窗口</div></div>
+</div>
 <div class="grid" style="margin-bottom:20px">
   <div class="stat"><div class="k">需要你处理</div><div class="v" style="color:{{ 'var(--err)' if stats['attention'] else 'var(--ok)' }}">{{ stats['attention'] }}</div><div class="h">{{ '有订单没能自动完成' if stats['attention'] else '没有积压的订单' }}</div></div>
   <div class="stat"><div class="k">待付款</div><div class="v">{{ stats['unpaid'] }}</div><div class="h">买家已下单，还没付款</div></div>
@@ -22,7 +31,7 @@
 <section class="c"><h2>需要你处理的订单</h2><p class="sub">买家已经付款，但系统没能自动完成的订单会出现在这里。</p>
 {% for r in attention %}
   <div class="orow"><div><div class="t1">{{ r['product_name'] }}{% if r['quantity']>1 %} × {{ r['quantity'] }}{% endif %}</div>
-    <div class="t2">{{ r['freason'] or r['attention'] }}</div><div class="t2">{{ r['lookup_email']|mask_email }} · {{ r['created_at']|dt }}</div></div>
+    <div class="t2">{{ r['freason'] or r['attention'] }}</div><div class="t2">{{ r['lookup_email'] or r['recharge_email'] or '-' }} · {{ r['created_at']|dt }}</div></div>
     <span class="chip {{ r['fstatus']|ful_tone }}">{{ r['fstatus']|ful_text }}</span>
     <a class="btn primary sm" href="{{ url_for('admin.order_detail', oid=r['id']) }}">查看并处理</a></div>
 {% else %}<div class="empty"><b>目前没有需要处理的订单</b>有新情况时，会显示在这里。</div>{% endfor %}

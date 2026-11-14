@@ -64,7 +64,7 @@ def test_confirm_keeps_what_the_buyer_typed_and_explains_problem(env):
     r = c.post("/product/%d/confirm" % pid, data={"quantity": "1", "region": "PH", "auth_json": '{"accessToken":"x"}',
                                                   "lookup_email": "buyer@example.com", "_csrf": env.csrf(c)})
     body = r.data.decode()
-    assert r.status_code == 200 and "缺少账号标识" in body or "缺少" in body
+    assert r.status_code == 200 and ("没有识别到充值账号" in body or "无法确认要充值的账号" in body or "缺少" in body)
     assert "authSessionJson" not in visible(body) and "JSON" not in visible(body)
     assert "buyer@example.com" in body                      # form is re-filled
 

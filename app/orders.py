@@ -6,18 +6,20 @@ import secrets
 import time
 
 from . import alipay as ali
-from . import pricing_service, settings
+from . import pricing_service, session_auth, settings
 from .db import tx
 
-MAX_AUTH_JSON = 20000
+EMAIL_RE = __import__("re").compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 class OrderError(Exception):
-    """A problem the buyer can fix. `field` tells the checkout dialog which input to highlight."""
+    """A problem the buyer can fix. `field` tells the checkout dialog which input to highlight.
+    `status` mirrors Session normalize outcomes: invalid | ambiguous (and valid on success paths)."""
 
-    def __init__(self, msg, field=""):
+    def __init__(self, msg, field="", status="invalid"):
         super().__init__(msg)
         self.field = field
+        self.status = status
 
 
 def _hash_token(t):
@@ -28,32 +30,16 @@ def new_order_no(now):
     return "A%s%s" % (time.strftime("%y%m%d%H%M%S", time.gmtime(now)), secrets.token_hex(5).upper())
 
 
-def parse_recharge_input(auth_text):
-    auth_text = (auth_text or "").strip()
-    if not auth_text:
-        raise OrderError("请粘贴充值凭证", "session")
-    if len(auth_text) > MAX_AUTH_JSON:
-        raise OrderError("充值凭证过长，请确认复制的是正确内容", "session")
+def parse_recharge_input(auth_text, core=None, use_upstream=True):
+    """Normalize Session (fill unique account_id) then return (session_dict, email).
+
+    Raises OrderError with buyer-facing Chinese. Does not create orders or upstream recharge tasks.
+    """
     try:
-        data = json.loads(auth_text)
-    except ValueError:
-        raise OrderError("充值凭证格式不对，请按说明重新复制完整内容", "session")
-    if not isinstance(data, dict):
-        raise OrderError("充值凭证格式不对，请按说明重新复制完整内容", "session")
-    token = data.get("accessToken")
-    acct = data.get("account_id") or data.get("accountId")
-    user = data.get("user") if isinstance(data.get("user"), dict) else {}
-    email = user.get("email")
-    if not (isinstance(token, str) and token.strip()):
-        raise OrderError("充值凭证里缺少账号授权信息，请重新提交有效的充值凭证", "session")
-    if not (isinstance(acct, str) and acct.strip()):
-        raise OrderError("充值凭证里缺少账号标识，请重新提交有效的充值凭证", "session")
-    if not (isinstance(email, str) and "@" in email):
-        raise OrderError("充值凭证里缺少账号邮箱，没有识别到充值账号，请重新提交有效的充值凭证", "session")
-    return data, email.strip()
-
-
-EMAIL_RE = __import__("re").compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+        data, email, _status = session_auth.normalize_session(auth_text, core=core, use_upstream=use_upstream)
+    except session_auth.SessionError as e:
+        raise OrderError(str(e), e.field, status=e.status)
+    return data, email
 
 
 def _recharge_price(conn, p, region):
@@ -91,24 +77,42 @@ def create_order(core, product_id, quantity, user_id=None, contact="", recharge_
     lookup_email = (lookup_email or "").strip().lower()
     if not EMAIL_RE.match(lookup_email) or len(lookup_email) > 120:
         raise OrderError("请填写有效的联系邮箱", "contact")
+
+    p = core.conn.execute("SELECT * FROM products WHERE id=?", (product_id,)).fetchone()
+    if not p or not p["enabled"]:
+        raise OrderError("这个套餐暂时不能购买，请刷新页面后重新选择", "product")
+    if not 1 <= quantity <= p["max_per_order"]:
+        raise OrderError("数量需在 1~%d" % p["max_per_order"])
+
+    unit_price, variant = p["price_cents"], None
+    enc, email, plan, reg = "", "", "", ""
+    if p["type"] == "api_recharge":
+        unit_price, variant, region = _recharge_price(core.conn, p, region)
+        # Resolve Session BEFORE creating an unpaid order — failure must leave zero orders.
+        data, email = parse_recharge_input(recharge_auth_text, core=core, use_upstream=True)
+        enc = core.crypto.encrypt(json.dumps(data, ensure_ascii=False))
+        plan, reg = p["plan_id"], region
+    elif p["type"] == "card":
+        n = core.conn.execute("SELECT COUNT(*) n FROM card_keys WHERE product_id=? AND status='available'", (p["id"],)).fetchone()["n"]
+        if n < quantity:
+            raise OrderError("库存不足")
+
     now = core.now()
     window = cfg["order_timeout_minutes"] * 60
     guest_token = None if user_id else secrets.token_urlsafe(32)
     order_no = new_order_no(now)
+    amount = unit_price * quantity
+
     with tx(core.conn) as c:
         p = c.execute("SELECT * FROM products WHERE id=?", (product_id,)).fetchone()
         if not p or not p["enabled"]:
             raise OrderError("这个套餐暂时不能购买，请刷新页面后重新选择", "product")
         if not 1 <= quantity <= p["max_per_order"]:
             raise OrderError("数量需在 1~%d" % p["max_per_order"])
-        unit_price, variant = p["price_cents"], None
-        enc, email, plan, reg = "", "", "", ""
         if p["type"] == "api_recharge":
             unit_price, variant, region = _recharge_price(c, p, region)
-            data, email = parse_recharge_input(recharge_auth_text)
-            enc = core.crypto.encrypt(json.dumps(data, ensure_ascii=False))
             plan, reg = p["plan_id"], region
-        amount = unit_price * quantity
+            amount = unit_price * quantity
         cur = c.execute(
             "INSERT INTO orders(order_no, user_id, guest_token_hash, product_id, product_name, product_type,"
             " unit_price_cents, quantity, amount_cents, contact, recharge_input_enc, recharge_plan_id,"
@@ -146,14 +150,14 @@ def preview_order(core, product_id, quantity, recharge_auth_text="", region="", 
     if not EMAIL_RE.match(lookup_email) or len(lookup_email) > 120:
         raise OrderError("请填写有效的联系邮箱", "contact")
     out = {"product": p, "quantity": quantity, "amount_cents": p["price_cents"] * quantity, "lookup_email": lookup_email,
-           "region": "", "account_email": ""}
+           "region": "", "account_email": "", "session_status": "valid"}
     if p["type"] == "card":
         n = core.conn.execute("SELECT COUNT(*) n FROM card_keys WHERE product_id=? AND status='available'", (p["id"],)).fetchone()["n"]
         if n < quantity:
             raise OrderError("库存不足")
     else:
         unit_price, _v, region = _recharge_price(core.conn, p, region)
-        _, out["account_email"] = parse_recharge_input(recharge_auth_text)
+        _, out["account_email"] = parse_recharge_input(recharge_auth_text, core=core, use_upstream=True)
         out["region"] = region
         out["amount_cents"] = unit_price * quantity
     return out

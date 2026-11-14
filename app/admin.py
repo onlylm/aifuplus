@@ -5,7 +5,7 @@ from functools import wraps
 from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, url_for
 
 from . import alipay as ali
-from . import catalog, fulfillment, payments, pricing, pricing_service, settings, site, upstream_sync
+from . import catalog, fulfillment, ops, payments, pricing, pricing_service, settings, site, upstream_sync
 from .humanize import explain  # noqa: F401
 
 bp = Blueprint("admin", __name__)
@@ -65,9 +65,14 @@ def dashboard():
                                          or _one("SELECT COUNT(*) FROM products WHERE enabled=1 AND type='card'") > 0),
          "hint": "打开某个套餐地区的销售开关，买家就能看到并购买。", "url": url_for("admin.products"), "btn": "去上架"},
     ]
+    period = request.args.get("period", "today")
+    if period not in ("today", "7d", "30d"):
+        period = "today"
+    ops_overview = ops.overview(core(), period)
     return render_template("admin/dashboard.html", attention=attention, stats=stats, steps=steps, ali=ali_cfg, up=up, stale=pricing_service.staleness(core()),
                            anomalies=_one("SELECT COUNT(*) FROM plan_variants WHERE anomaly!=''") + (1 if pricing_service.get_settings(core().conn)["fx_pending_micro"] else 0),
-                           all_done=all(s["done"] for s in steps), recharge_products=recharge_products, card_products=card_products)
+                           all_done=all(s["done"] for s in steps), recharge_products=recharge_products, card_products=card_products,
+                           ops_overview=ops_overview, ops_period=period, tz_label=ops.TZ_LABEL)
 
 
 # ---- Alipay ---------------------------------------------------------------
@@ -372,17 +377,29 @@ VIEW_SQL = {
 def orders_list():
     view = request.args.get("view", "all")
     q = request.args.get("q", "").strip()
-    where, args = "1=1", []
-    if view in VIEW_SQL:
-        where += " AND " + VIEW_SQL[view]
-    if q:
-        where += " AND (o.order_no LIKE ? OR o.lookup_email LIKE ? OR o.recharge_email LIKE ? OR o.contact LIKE ?)"
-        args += ["%" + q + "%"] * 4
     page = max(1, request.args.get("page", 1, type=int))
-    rows = core().conn.execute(
-        "SELECT o.*, f.status AS fstatus, f.reason AS freason FROM orders o JOIN fulfillments f ON f.order_id=o.id"
-        " WHERE %s ORDER BY o.id DESC LIMIT 50 OFFSET ?" % where, args + [(page - 1) * 50]).fetchall()
-    return render_template("admin/orders.html", rows=rows, views=VIEWS, view=view, q=q, page=page)
+    result = ops.search_orders(
+        core(),
+        status=view if view != "all" else "all",
+        period=request.args.get("period", ""),
+        date_from=request.args.get("from", ""),
+        date_to=request.args.get("to", ""),
+        plan_id=request.args.get("plan", ""),
+        region=request.args.get("region", ""),
+        order_no=q if q and not ("@" in q) else request.args.get("order_no", ""),
+        lookup_email=request.args.get("lookup_email", "") or (q if "@" in q else ""),
+        recharge_email=request.args.get("recharge_email", ""),
+        customer=request.args.get("customer", "all"),
+        page=page,
+    )
+    # Keep template compatibility: sqlite-like keys used by admin/orders.html
+    rows = []
+    for item in result["rows"]:
+        o = core().conn.execute("SELECT o.*, f.status AS fstatus, f.reason AS freason FROM orders o"
+                                " JOIN fulfillments f ON f.order_id=o.id WHERE o.id=?", (item["id"],)).fetchone()
+        rows.append(o)
+    return render_template("admin/orders.html", rows=rows, views=VIEWS, view=view, q=q, page=page,
+                           ops_result=result, tz_label=ops.TZ_LABEL)
 
 
 def _headline(o, f):
@@ -411,10 +428,16 @@ def order_detail(oid):
     cards = c.execute("SELECT mask, status FROM card_keys WHERE order_id=? ORDER BY id", (oid,)).fetchall()
     tone, headline = _headline(o, f)
     needs_action = o["payment_status"] == "paid" and f["status"] in ("blocked", "failed", "manual")
+    buyer = ops.buyer_summary(core(), o["lookup_email"])
+    recharge_acct = ops.recharge_account_summary(core(), o["recharge_email"])
+    timeline = ops.order_timeline(core(), oid)
+    lookup_rank = ops._order_rank(c, o["lookup_email"], oid)
     return render_template("admin/order_detail.html", o=o, f=f, pay=pay, events=events, cards=cards, tone=tone,
                            headline=headline, needs_action=needs_action,
                            retry_label="重新发货" if o["product_type"] == "card" else "重新尝试充值",
-                           can_manual=o["product_type"] == "api_recharge" and o["payment_status"] == "paid" and f["status"] in ("blocked", "failed", "manual"))
+                           can_manual=o["product_type"] == "api_recharge" and o["payment_status"] == "paid" and f["status"] in ("blocked", "failed", "manual"),
+                           buyer=buyer, recharge_acct=recharge_acct, timeline=timeline, tz_label=ops.TZ_LABEL,
+                           lookup_order_rank=lookup_rank)
 
 
 REQUERY_TEXT = {"paid": "支付宝确认：已收到买家付款。", "waiting": "支付宝确认：买家还没有付款。",

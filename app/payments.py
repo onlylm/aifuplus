@@ -52,7 +52,7 @@ def _fulfil(core, order_no):
     row = core.conn.execute("SELECT id FROM orders WHERE order_no=?", (order_no,)).fetchone()
     if row:
         try:
-            fulfillment.run(core, row["id"])
+            fulfillment.run(core, row["id"], worker=False)
         except Exception as e:  # payment is already stored; worker will retry
             core.event(core.conn, row["id"], "fulfil_exception", "履约异常：%s" % type(e).__name__)
 

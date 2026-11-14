@@ -142,6 +142,10 @@ class FakeUpstream:
         self.key = "KEY-123"
         self.config_error = 0
         self.config_payload = default_config()
+        self.account_checks = {}   # jobId -> job
+        self.account_check_created = 0
+        # Next POST /account-check behaviors: "ok", "ok:ACC", "ambiguous", "empty", "fail", "timeout_job"
+        self.account_check_script = []
 
     def transport(self, method, url, headers, body, timeout):
         if headers["X-Automate-Key"] != self.key:
@@ -150,6 +154,40 @@ class FakeUpstream:
         q = parse_qs(urlparse(url).query)
         data = json.loads(body) if body else None
         self.requests.append((method, path, data))
+        if method == "POST" and path == "/account-check":
+            beh = self.account_check_script.pop(0) if self.account_check_script else "ok"
+            if beh == "fail":
+                return 400, json.dumps({"success": False, "code": "automate_auth_invalid", "message": "bad", "requestId": "R"})
+            self.account_check_created += 1
+            jid = "ptj_%04d" % self.account_check_created
+            if beh.startswith("ok"):
+                acc = beh.split(":", 1)[1] if ":" in beh else "acc-from-check"
+                result = {"email": "buyer@example.com", "selectedAccountId": acc, "accountCount": 1,
+                          "accounts": [{"accountId": acc, "planLabel": "Free", "tier": "free"}]}
+                status = "success"
+            elif beh == "ambiguous":
+                result = {"email": "buyer@example.com", "selectedAccountId": "", "accountCount": 2,
+                          "accounts": [{"accountId": "a1"}, {"accountId": "a2"}]}
+                status = "success"
+            elif beh == "empty":
+                result = {"email": "buyer@example.com", "selectedAccountId": "", "accountCount": 0, "accounts": []}
+                status = "success"
+            elif beh == "timeout_job":
+                result = {}
+                status = "running"
+            else:
+                result = {"selectedAccountId": "acc-from-check", "accountCount": 1, "accounts": [{"accountId": "acc-from-check"}]}
+                status = "success"
+            job = {"id": jid, "type": "account_check", "status": status, "errorCode": "", "result": result}
+            self.account_checks[jid] = job
+            return 200, json.dumps({"success": True, "job": job, "requestId": "R"})
+        if method == "GET" and path.startswith("/account-check/jobs/"):
+            jid = path.rsplit("/", 1)[-1]
+            job = self.account_checks.get(jid)
+            if not job:
+                return 404, json.dumps({"success": False, "code": "automate_account_check_job_not_found"})
+            # If still running in fake, leave it running (tests that need success use immediate ok).
+            return 200, json.dumps({"success": True, "job": job})
         if method == "POST" and path == "/tasks":
             beh = self.script.pop(0) if self.script else "ok"
             if beh == "timeout_before":

@@ -431,7 +431,9 @@ def test_guest_buys_a_variant_without_login_and_gets_recharged(env):
     assert "/pay/" in loc and [r for r in env.upstream.requests if r[0] == "POST"] == []    # no recharge is submitted before payment
     env.alipay.pay(no)
     env.post_notify(env.alipay.notify_form(no))
-    worker.sweep_once(env.core)                                                  # recharges are submitted by the worker only
+    assert [r for r in env.upstream.requests if r[0] == "POST"] == []   # still waiting for worker
+    from app.worker import sweep_once
+    sweep_once(env.core)
     sent = env.upstream.tasks["%s-1" % no]["body"]
     assert sent["planId"] == PLUS and sent["checkoutCountry"] == "PH" and sent["paymentSource"] == "auto_card"
     assert env.alipay.trades[no]["amount"] == "138.24"
@@ -497,7 +499,8 @@ def test_admin_pricing_page_is_plain_language(env):
                  "自动参考汇率", "实际计价汇率", "立即同步", "重新计算售价"):
         assert need in v, need
     for need in ("展开地区管理", "上游参考成本", "套餐人民币成本", "其他成本", "总成本", "加价方式", "成本来源", "同步状态", "预计利润",
-                 "批量上架", "批量关闭", "统一百分比加价", "统一固定利润", "批量设置其他成本", "上架销售", "关闭销售",
+                 "批量上架", "批量关闭", "统一百分比加价", "统一固定利润", "批量设置其他成本", "批量直接零售价", "直接设置零售价",
+                 "上架销售", "关闭销售",
                  "关闭后，新用户将无法选择该地区，历史订单不受影响。"):
         assert need in page, need
     for bad in ("plus-monthly", "pro5x-monthly", "planId", "paymentSource", "wallet", "regionalDisplayPrices", "planRegions", "JSON"):
@@ -505,8 +508,8 @@ def test_admin_pricing_page_is_plain_language(env):
     assert "plus-monthly" in page                                                 # present only inside the collapsed 技术详情
 
 
-def test_migration_003_is_incremental_and_idempotent(env):
+def test_migration_003_and_004_are_incremental_and_idempotent(env):
     from app.migrate import migrate
     assert migrate(env.db_path, verbose=False) == []
     names = [r[0] for r in env.core.conn.execute("SELECT name FROM schema_migrations ORDER BY name")]
-    assert names == ["001_init.sql", "002_site_and_lookup.sql", "003_pricing_variants.sql"]
+    assert names == ["001_init.sql", "002_site_and_lookup.sql", "003_pricing_variants.sql", "004_manual_retail.sql", "005_ops_indexes.sql"]

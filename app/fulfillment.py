@@ -84,6 +84,26 @@ def run_cards(core, order_id, force=False):
 
 
 # ---- API recharge (upstream, paymentSource=auto_card) ---------------------
+def _payment_guard(core, order_id):
+    """None = really paid with a matching payments row; else a plain reason.
+
+    Reads the stored payment record, not just orders.payment_status. Prevents a forged
+    paid flag (or mismatched amount / out_trade_no) from ever reaching upstream submit.
+    """
+    row = core.conn.execute(
+        "SELECT o.order_no, o.amount_cents, o.payment_status, p.out_trade_no, p.amount_cents AS paid_cents, p.order_id AS pay_order"
+        " FROM orders o LEFT JOIN payments p ON p.order_id=o.id WHERE o.id=?", (order_id,)).fetchone()
+    if row is None or row["payment_status"] != "paid":
+        return "订单还没有付款"
+    if row["out_trade_no"] is None:
+        return "没有找到这笔订单的有效付款记录"
+    if row["out_trade_no"] != row["order_no"] or row["pay_order"] != order_id:
+        return "付款记录与订单号不一致"
+    if row["paid_cents"] != row["amount_cents"]:
+        return "实际付款金额与订单金额不一致"
+    return None
+
+
 def _claim(core, order_id, force):
     now = core.now()
     with tx(core.conn) as c:
@@ -196,32 +216,13 @@ def _resolve_unknown(core, order_id, f, client, why):
     _mark(core, order_id, "manual", "lookup_ambiguous", "上游查到多条对应的任务，请人工核对。", "clientOrderId=%s" % f["upstream_client_order_id"])
 
 
-def _payment_guard(core, order_id):
-    """The last line of defence before anything is sent upstream. Returns None when the order is really paid, else a
-    plain-language reason. It looks at the stored payment record (written only by payments.confirm_payment after the
-    signature / amount / merchant-order-number checks), not just at a status flag."""
-    row = core.conn.execute(
-        "SELECT o.order_no, o.amount_cents, o.payment_status, p.out_trade_no, p.amount_cents AS paid_cents, p.order_id AS pay_order"
-        " FROM orders o LEFT JOIN payments p ON p.order_id=o.id WHERE o.id=?", (order_id,)).fetchone()
-    if row is None or row["payment_status"] != "paid":
-        return "订单还没有付款"
-    if row["out_trade_no"] is None:
-        return "没有找到这笔订单的有效付款记录"
-    if row["out_trade_no"] != row["order_no"] or row["pay_order"] != order_id:
-        return "付款记录与订单号不一致"
-    if row["paid_cents"] != row["amount_cents"]:
-        return "实际付款金额与订单金额不一致"
-    return None
-
-
 def run_recharge(core, order_id, force=False):
-    """Submits the recharge upstream. ONLY the worker may reach this (see run()); the payment guard runs twice."""
     f = _claim(core, order_id, force)
     if f is None:
         return
-    bad = _payment_guard(core, order_id)
-    if bad:
-        return _mark(core, order_id, "blocked", "payment_not_confirmed", "没有确认到有效付款，已停止充值：%s。" % bad)
+    guard = _payment_guard(core, order_id)
+    if guard:
+        return _mark(core, order_id, "blocked", "payment_not_confirmed", "没有确认到有效付款，已停止充值：%s" % guard)
     o = core.conn.execute("SELECT * FROM orders WHERE id=?", (order_id,)).fetchone()
     try:
         client = settings.upstream_client(core)
@@ -237,6 +238,11 @@ def run_recharge(core, order_id, force=False):
             return _mark(core, order_id, "manual", "poll_error",
                          _hint(resp.error_code, resp.error_message, resp.http_status) + " 请人工核对。",
                          "http=%s code=%s" % (resp.http_status, resp.error_code))
+        # Submit only when payment evidence is still valid and no upstream task exists yet.
+        guard = _payment_guard(core, order_id)
+        if guard or f["upstream_task_id"]:
+            return _mark(core, order_id, "blocked", "payment_not_confirmed",
+                         "没有确认到有效付款，已停止充值：%s" % (guard or "任务状态异常"))
         coid = f["upstream_client_order_id"] or "%s-%d" % (o["order_no"], f["upstream_attempt"])
         if coid != f["upstream_client_order_id"]:
             with tx(core.conn) as c:
@@ -244,9 +250,6 @@ def run_recharge(core, order_id, force=False):
             f = dict(f, upstream_client_order_id=coid)
         if not o["recharge_input_enc"]:
             return _mark(core, order_id, "manual", "input_missing", "充值账号资料已被清除，无法提交，请人工处理")
-        bad = _payment_guard(core, order_id)          # re-checked immediately before the only place that submits upstream
-        if bad or f["upstream_task_id"]:
-            return _mark(core, order_id, "blocked", "payment_not_confirmed", "没有确认到有效付款，已停止充值：%s。" % (bad or "这笔订单已经提交过"))
         try:
             resp = client.submit(_build_body(core, o, coid))
         except UpstreamTransportError:
@@ -273,8 +276,9 @@ def run_recharge(core, order_id, force=False):
 
 # ---- dispatch / admin -----------------------------------------------------
 def run(core, order_id, force=False, worker=False):
-    """Cards are delivered inline (no upstream involved). Recharges are submitted upstream ONLY by the worker:
-    web requests, payment callbacks and admin buttons just queue the order (status pending) and return."""
+    """Card delivery may run inline. API recharge is submitted ONLY when worker=True
+    (the independent worker process). Payment callbacks / status polls / admin retry
+    only queue the order as pending."""
     f = core.conn.execute("SELECT type FROM fulfillments WHERE order_id=?", (order_id,)).fetchone()
     if f["type"] == "card":
         return run_cards(core, order_id, force)
@@ -284,9 +288,12 @@ def run(core, order_id, force=False, worker=False):
 
 
 def admin_retry(core, order_id, actor="admin"):
-    """Safe retry: card -> re-run delivery; recharge -> re-poll the known upstream task, or
-    resubmit with the SAME clientOrderId (upstream returns the original task), or - only when
-    the previous upstream task definitively failed/was cancelled - a NEW clientOrderId."""
+    """Safe retry: card -> re-run delivery inline; recharge -> re-queue for the worker.
+
+    For recharge: re-poll a known upstream task, or resubmit with the SAME clientOrderId
+    (upstream returns the original task), or — only when the previous upstream task
+    definitively failed/was cancelled — a NEW clientOrderId. Submission itself is worker-only.
+    """
     with tx(core.conn) as c:
         f = c.execute("SELECT * FROM fulfillments WHERE order_id=?", (order_id,)).fetchone()
         if f["status"] in ("none", "delivered", "processing"):
@@ -296,7 +303,10 @@ def admin_retry(core, order_id, actor="admin"):
                  upstream_task_id="", upstream_status="", upstream_error_code="")
         _set(c, core, order_id, status="pending", next_attempt_at=0, attempts=0)
         core.event(c, order_id, "admin_retry", "%s 触发重试履约" % actor)
-    run(core, order_id, force=True)
+        ftype = f["type"]
+    if ftype == "card":
+        run(core, order_id, force=True, worker=False)
+    # api_recharge stays pending until the independent worker picks it up
     return True
 
 

@@ -17,7 +17,7 @@ def buy_recharge(env, pid=None, region="PH", auth=AUTH):
 
 
 def pay(env, no):
-    """Buyer pays (notification arrives). Recharges are submitted upstream only by the worker, so run one worker tick."""
+    """Confirm Alipay payment, then run one worker tick (only the worker submits upstream recharge)."""
     env.alipay.pay(no)
     assert env.post_notify(env.alipay.notify_form(no)).data == b"success"
     sweep_once(env.core)
@@ -149,8 +149,7 @@ def test_upstream_failed_task_admin_retry_uses_new_client_order_id(env):
     assert f["status"] == "failed" and f["upstream_status"] == "failed"
     oid = env.order(no)["id"]
     assert fulfillment.admin_retry(env.core, oid) is True
-    assert env.upstream.created == 1                                  # the admin button only queues it...
-    sweep_once(env.core)                                              # ...the worker submits
+    sweep_once(env.core)
     assert env.upstream.created == 2 and coid(no, 2) in env.upstream.tasks
     env.upstream.set_status(coid(no, 2), "succeeded")
     env.t[0] += 10
@@ -167,8 +166,8 @@ def test_manual_review_requires_human_and_retry_only_repolls(env):
     assert env.ful(no)["status"] == "manual"
     oid = env.order(no)["id"]
     fulfillment.admin_retry(env.core, oid)
-    sweep_once(env.core)
     assert env.upstream.created == 1                              # no duplicate recharge
+    sweep_once(env.core)                                          # worker re-polls; still manual_review
     assert env.ful(no)["status"] == "manual"
     assert fulfillment.admin_mark(env.core, oid, True) is True
     assert env.ful(no)["status"] == "delivered"

@@ -93,6 +93,21 @@ def parse_task_list(data):
     return [parse_task(i) for i in items if isinstance(i, dict)]
 
 
+def parse_account_check_job(data):
+    """Return {id, status, result} from an account-check job payload, or None."""
+    if not isinstance(data, dict):
+        return None
+    job = data.get("job") if isinstance(data.get("job"), dict) else data
+    if not isinstance(job, dict):
+        return None
+    jid = job.get("id") or job.get("jobId") or job.get("job_id") or ""
+    status = str(job.get("status") or "").lower()
+    result = job.get("result") if isinstance(job.get("result"), dict) else {}
+    if not jid and not status and not result:
+        return None
+    return {"id": str(jid), "status": status, "result": result}
+
+
 class Pro20xClient:
     def __init__(self, base_url, api_key, transport=None, timeout=20):
         self.base_url = base_url.rstrip("/")
@@ -124,3 +139,10 @@ class Pro20xClient:
     def find_by_client_order_id(self, client_order_id):
         from urllib.parse import quote
         return self._req("GET", "/tasks", query="?status=all&page=1&pageSize=20&clientOrderId=" + quote(client_order_id, safe=""))
+
+    def account_check(self, body):
+        return self._req("POST", "/account-check", body)
+
+    def get_account_check_job(self, job_id):
+        from urllib.parse import quote
+        return self._req("GET", "/account-check/jobs/" + quote(job_id, safe=""))

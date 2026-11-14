@@ -1,6 +1,10 @@
 import os
 import secrets
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+_DISPLAY_TZ = ZoneInfo("Asia/Manila")
 
 from flask import Flask, abort, g, jsonify, request, session, url_for
 
@@ -44,7 +48,7 @@ def create_app(core=None, secret_key=None, start_worker=False):
     def dt(ts):
         if not ts:
             return "-"
-        return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts))
+        return datetime.fromtimestamp(int(ts), tz=_DISPLAY_TZ).strftime("%Y-%m-%d %H:%M:%S")
 
     @app.context_processor
     def inject():

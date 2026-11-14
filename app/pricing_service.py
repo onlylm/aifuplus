@@ -140,14 +140,38 @@ def _new_variant(conn, core, product_id, plan_id, region, s, upstream_label=""):
 
 
 def _recalc_variant(conn, core, v, s, actor, reason):
-    """Recompute cost / price for one variant row (dict). Keeps the previous price when no valid cost can be formed."""
+    """Recompute cost / price for one variant row (dict).
+
+    percentage/fixed: need a valid package cost; keep previous sale price when cost is missing.
+    manual_retail: sale_price always equals manual_sale_price_cny; cost/FX sync never overwrites it.
+    """
     fx_micro = effective_fx(s)
     eff, used = pricing.effective_package_cost(v["cost_source"], v["upstream_cost_usd_cents"], v["manual_package_cost_cny"], fx_micro)
+    total = (eff + v["other_cost_cny"]) if eff is not None else None
+    mode = v["pricing_mode"]
+    now = core.now()
+
+    if mode == "manual_retail":
+        manual = v.get("manual_sale_price_cny")
+        if manual is None or manual <= 0:
+            return False
+        price = manual
+        conn.execute(
+            "UPDATE plan_variants SET effective_package_cost_cny=?, total_cost_cny=?, sale_price_cny=?, fx_rate_snapshot=?,"
+            " price_calculated_at=?, updated_at=? WHERE id=?",
+            (eff, total, price, fx_micro if used == "upstream" else None, now, now, v["id"]))
+        # Cost-only sync must not audit a "price change" when retail is unchanged.
+        if price != v["sale_price_cny"]:
+            audit(conn, core, actor, "price_change", "%s %s 售价 %s → %s（%s）" % (
+                v["plan_label"], v["region_label"], pricing.fmt_cny(v["sale_price_cny"]), pricing.fmt_cny(price), reason),
+                v["plan_id"], v["region_code"],
+                json.dumps({"total_cost": total, "package_cost": eff, "fx": fx_micro, "source": used, "mode": mode}))
+            return True
+        return False
+
     if eff is None:
         return False
-    total = eff + v["other_cost_cny"]
-    price = pricing.compute_price(total, v["pricing_mode"], v["markup_basis_points"], v["fixed_profit_cny"], v["rounding"])
-    now = core.now()
+    price = pricing.compute_price(total, mode, v["markup_basis_points"], v["fixed_profit_cny"], v["rounding"])
     conn.execute("UPDATE plan_variants SET effective_package_cost_cny=?, total_cost_cny=?, sale_price_cny=?, fx_rate_snapshot=?,"
                  " price_calculated_at=?, updated_at=? WHERE id=?", (eff, total, price, fx_micro if used == "upstream" else None, now, now, v["id"]))
     if price != v["sale_price_cny"]:
@@ -341,6 +365,8 @@ def toggle_variant(core, actor, vid, enabled):
     with tx(core.conn) as c:
         v = _variant(c, vid)
         if enabled and v["sale_price_cny"] is None:
+            if v["pricing_mode"] == "manual_retail":
+                raise PricingError("「%s %s」还没有零售价，请先填写零售价再上架。" % (v["plan_label"], v["region_label"]))
             raise PricingError("「%s %s」还没有可用成本，请先填写套餐成本再上架。" % (v["plan_label"], v["region_label"]))
         c.execute("UPDATE plan_variants SET enabled=?, updated_at=? WHERE id=?", (1 if enabled else 0, core.now(), vid))
         audit(c, core, actor, "toggle", "%s %s：%s" % (v["plan_label"], v["region_label"], "上架销售" if enabled else "关闭销售"), v["plan_id"], v["region_code"])
@@ -362,6 +388,11 @@ def _apply_fields(v, f):
             upd["markup_basis_points"] = pricing.parse_percent_bp(f["markup_percent"])
         if f.get("fixed_profit") not in (None, ""):
             upd["fixed_profit_cny"] = pricing.parse_money_fen(f["fixed_profit"])
+        if f.get("manual_sale_price") not in (None, ""):
+            fen = pricing.parse_money_fen(f["manual_sale_price"])
+            if fen <= 0:
+                raise PricingError("零售价必须大于 0")
+            upd["manual_sale_price_cny"] = fen
     except ValueError as e:
         raise PricingError(str(e))
     if f.get("pricing_mode"):
@@ -374,12 +405,18 @@ def _apply_fields(v, f):
         upd["rounding"] = f["rounding"]
     if upd.get("markup_basis_points", 0) > 1_000_000:
         raise PricingError("加价比例过大")
+    mode = upd.get("pricing_mode", v["pricing_mode"])
+    if mode == "manual_retail":
+        manual = upd.get("manual_sale_price_cny", v.get("manual_sale_price_cny"))
+        if manual is None or manual <= 0:
+            raise PricingError("请填写大于 0 的人民币零售价")
     return upd
 
 
 def update_variant(core, actor, vid, fields, c=None):
     def run(c):
         v = _variant(c, vid)
+        old_mode, old_price = v["pricing_mode"], v["sale_price_cny"]
         upd = _apply_fields(v, fields)
         if upd:
             cols = ", ".join("%s=?" % k for k in upd)
@@ -388,9 +425,16 @@ def update_variant(core, actor, vid, fields, c=None):
         _recalc_variant(c, core, fresh, get_settings(c), actor, "管理员修改")
         fresh = _variant(c, vid)
         if fresh["enabled"] and fresh["sale_price_cny"] is None:
-            raise PricingError("这个地区正在销售，不能清除成本；请先关闭销售。")
-        audit(c, core, actor, "variant_update", "%s %s：管理员修改定价设置" % (v["plan_label"], v["region_label"]), v["plan_id"], v["region_code"],
-              json.dumps({k: fields[k] for k in fields if k != "_csrf"}, ensure_ascii=False))
+            raise PricingError("这个地区正在销售，不能清除售价；请先关闭销售。")
+        detail = {"old_mode": old_mode, "old_sale_price_cny": old_price,
+                  "new_mode": fresh["pricing_mode"], "new_sale_price_cny": fresh["sale_price_cny"],
+                  "fields": {k: fields[k] for k in fields if k != "_csrf"}}
+        audit(c, core, actor, "variant_update",
+              "%s %s：%s ¥%s → %s ¥%s" % (
+                  v["plan_label"], v["region_label"],
+                  pricing.MODE_TEXT.get(old_mode, old_mode), pricing.fmt_cny(old_price),
+                  pricing.MODE_TEXT.get(fresh["pricing_mode"], fresh["pricing_mode"]), pricing.fmt_cny(fresh["sale_price_cny"])),
+              v["plan_id"], v["region_code"], json.dumps(detail, ensure_ascii=False))
     if c is not None:
         return run(c)
     with tx(core.conn) as c:
@@ -398,7 +442,7 @@ def update_variant(core, actor, vid, fields, c=None):
 
 
 def bulk(core, actor, plan_id, action, variant_ids, params):
-    """Batch operations on one plan. Returns a plain-language summary."""
+    """Batch operations on one plan. Returns a plain-language summary. Invalid input rolls the whole transaction back."""
     if plan_id not in ALLOWED:
         raise PricingError("套餐不存在")
     with tx(core.conn) as c:
@@ -416,6 +460,32 @@ def bulk(core, actor, plan_id, action, variant_ids, params):
                 done += 1
             audit(c, core, actor, "bulk", "%s：批量%s %d 个地区" % (PLAN_LABEL[plan_id], "上架" if action == "enable" else "关闭", done), plan_id)
             return "已%s %d 个地区。" % ("上架" if action == "enable" else "关闭", done) + (" 另有 %d 个地区还没有成本，已跳过。" % skipped if skipped else "")
+        if action == "retail":
+            if not variant_ids:
+                raise PricingError("请先勾选要设置零售价的地区。")
+            if str(params.get("value", "")).strip() == "":
+                raise PricingError("请填写零售价。")
+            try:
+                fen = pricing.parse_money_fen(params.get("value", ""))
+            except ValueError as e:
+                raise PricingError(str(e))
+            if fen <= 0:
+                raise PricingError("零售价必须大于 0")
+            labels = []
+            for r in chosen:
+                before = _variant(c, r["id"])
+                update_variant(core, actor, r["id"],
+                               {"pricing_mode": "manual_retail", "manual_sale_price": params.get("value", "")}, c=c)
+                after = _variant(c, r["id"])
+                labels.append(after["region_label"])
+                # Setting retail price must NOT auto-enable the region.
+                if before["enabled"] == 0 and after["enabled"] != 0:
+                    raise PricingError("批量设置零售价不能自动上架")
+            audit(c, core, actor, "bulk",
+                  "%s：批量直接零售价 ¥%s，地区：%s" % (PLAN_LABEL[plan_id], pricing.fmt_cny(fen), "、".join(labels)),
+                  plan_id, detail=json.dumps({"variant_ids": variant_ids, "manual_sale_price_cny": fen, "regions": labels},
+                                             ensure_ascii=False))
+            return "已为 %d 个地区设置零售价 ¥%s（未自动上架）：%s。" % (len(chosen), pricing.fmt_cny(fen), "、".join(labels))
         field_map = {"markup": {"pricing_mode": "percentage", "markup_percent": params.get("value", ""), "rounding": params.get("rounding", "")},
                      "profit": {"pricing_mode": "fixed", "fixed_profit": params.get("value", ""), "rounding": params.get("rounding", "")},
                      "other_cost": {"other_cost": params.get("value", "")}}
@@ -478,6 +548,8 @@ def fx_view(core):
 
 
 def strategy_text(v):
+    if v["pricing_mode"] == "manual_retail":
+        return "直接零售价 ¥%s" % pricing.fmt_cny(v["manual_sale_price_cny"] or v["sale_price_cny"])
     if v["pricing_mode"] == "percentage":
         return "成本加价 %s%%" % ("%g" % (v["markup_basis_points"] / 100))
     return "固定利润 ¥%s" % pricing.fmt_cny(v["fixed_profit_cny"])
@@ -508,6 +580,7 @@ def plan_cards(core):
             v["cost_note"] = cost_note(v)
             v["strategy"] = strategy_text(v)
             v["profit"] = None if v["sale_price_cny"] is None or v["total_cost_cny"] is None else v["sale_price_cny"] - v["total_cost_cny"]
+            v["loss"] = bool(v["profit"] is not None and v["profit"] < 0)
             v["can_sell"] = v["sale_price_cny"] is not None
             v["upstream_usd_text"] = pricing.fmt_usd(v["upstream_cost_usd_cents"]) if v["upstream_cost_usd_cents"] is not None else None
         live = [v for v in rows if v["enabled"] and v["sale_price_cny"] is not None]

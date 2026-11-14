@@ -229,9 +229,9 @@ def order_status(order_no):
             pass
         o = orders.get_by_no(c.conn, order_no)
     f = c.conn.execute("SELECT * FROM fulfillments WHERE order_id=?", (o["id"],)).fetchone()
-    if o["payment_status"] == "paid" and f["status"] == "pending":
+    if o["payment_status"] == "paid" and f["status"] == "pending" and f["type"] == "card":
         try:
-            fulfillment.run(c, o["id"])
+            fulfillment.run(c, o["id"], worker=False)
         except Exception:
             pass
         f = c.conn.execute("SELECT * FROM fulfillments WHERE order_id=?", (o["id"],)).fetchone()
@@ -313,8 +313,8 @@ def _checkout_plans():
     return out
 
 
-def _json_error(message, field="", status=400):
-    return jsonify(ok=False, field=field, message=message), status
+def _json_error(message, field="", status=400, session_status="invalid"):
+    return jsonify(ok=False, field=field, message=message, status=session_status), status
 
 
 def _body():
@@ -366,11 +366,11 @@ def api_validate():
     try:
         prev = orders.preview_order(core(), pid, 1, _session_text(d), str(d.get("region", "")), str(d.get("contact_email", "")))
     except orders.OrderError as e:
-        return _json_error(str(e), e.field)
+        return _json_error(str(e), e.field, session_status=getattr(e, "status", "invalid"))
     p = prev["product"]
     if p["type"] != "api_recharge":
         return _json_error("这个套餐暂时不能购买，请刷新页面后重新选择", "product")
-    return jsonify(ok=True, plan=p["name"], region_code=prev["region"], region_label=humanize.region_name(prev["region"]),
+    return jsonify(ok=True, status="valid", plan=p["name"], region_code=prev["region"], region_label=humanize.region_name(prev["region"]),
                    amount_cents=prev["amount_cents"], amount_text=ali.format_cents(prev["amount_cents"]),
                    account_email=prev["account_email"], contact_email=prev["lookup_email"])
 

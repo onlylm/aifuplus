@@ -33,8 +33,33 @@
 <dl class="kv"><dt>套餐 / 地区</dt><dd>{{ o['snap_plan_label'] }} · {{ o['snap_region_label'] }}</dd>
   <dt>套餐成本</dt><dd>¥{{ o['snap_package_cost_cny']|yuan }}（{{ '采用上游参考成本' if o['snap_cost_source']=='upstream' else '人工成本' }}{% if o['snap_fx_rate'] %}，汇率 {{ o['snap_fx_rate']|rate }}{% endif %}）</dd>
   <dt>其他成本</dt><dd>¥{{ o['snap_other_cost_cny']|yuan }}</dd><dt>总成本</dt><dd>¥{{ o['snap_total_cost_cny']|yuan }}</dd>
-  <dt>加价方式</dt><dd>{{ '按成本百分比加价' if o['snap_pricing_mode']=='percentage' else '固定利润' }}</dd>
+  <dt>加价方式</dt><dd>{% if o['snap_pricing_mode']=='percentage' %}按成本百分比加价{% elif o['snap_pricing_mode']=='fixed' %}固定利润{% elif o['snap_pricing_mode']=='manual_retail' %}直接设置零售价{% else %}{{ o['snap_pricing_mode'] }}{% endif %}</dd>
   <dt>成交价</dt><dd>¥{{ o['amount_cents']|yuan }}</dd><dt>预计利润</dt><dd>¥{{ o['snap_expected_profit_cny']|yuan }}</dd></dl></section>{% endif %}
+
+
+<div class="grid-3" style="margin-top:20px">
+<section class="c" style="margin:0"><h3 style="margin-bottom:10px">联系邮箱摘要</h3>
+  <p class="help">时区 {{ tz_label }}</p>
+  <dl class="kv">
+    <dt>邮箱</dt><dd>{{ buyer['email'] or '-' }}</dd>
+    <dt>累计订单</dt><dd>{{ buyer['orders'] }}{% if lookup_order_rank %}（本单是第 {{ lookup_order_rank }} 次下单）{% endif %}</dd>
+    <dt>已付款 / 成功</dt><dd>{{ buyer['paid_orders'] }} / {{ buyer['success_orders'] }}</dd>
+    <dt>累计已付款金额</dt><dd>¥{{ buyer['paid_amount_cents']|yuan }}</dd>
+    <dt>首次 / 最近下单</dt><dd>{{ buyer['first_order_at_text'] or '-' }} / {{ buyer['last_order_at_text'] or '-' }}</dd>
+  </dl></section>
+<section class="c" style="margin:0"><h3 style="margin-bottom:10px">充值账号摘要</h3>
+  <dl class="kv">
+    <dt>充值邮箱</dt><dd>{{ recharge_acct['email'] or '-' }}</dd>
+    <dt>累计充值订单</dt><dd>{{ recharge_acct['recharge_orders'] }}</dd>
+    <dt>成功次数</dt><dd>{{ recharge_acct['success_count'] }}</dd>
+    <dt>最近成功</dt><dd>{{ recharge_acct['last_success_at_text'] or '-' }}</dd>
+    <dt>最近套餐 / 地区</dt><dd>{{ recharge_acct['last_plan_label'] or '-' }} · {{ recharge_acct['last_region_label'] or '-' }}</dd>
+  </dl></section>
+<section class="c" style="margin:0"><h3 style="margin-bottom:10px">订单时间线</h3>
+  <ul class="timeline">{% for n in timeline['nodes'] %}<li><b>{{ n['title'] }}</b>　{{ n['message'] }}<br><small>{{ n['at_text'] }}</small>
+    {% if n['detail'] %}<details class="adv" style="margin:6px 0 0"><summary>技术详情</summary><div class="body"><code>{{ n['detail'] }}</code></div></details>{% endif %}</li>{% endfor %}</ul>
+</section>
+</div>
 
 <section class="c" style="margin-top:20px"><h2>处理记录</h2><ul class="timeline">
 {% for e in events %}<li><b>{{ e['kind']|event_text }}</b>　{{ e['message'] }}<br><small>{{ e['created_at']|dt }}</small>
