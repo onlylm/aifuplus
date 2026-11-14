@@ -3,11 +3,23 @@
 <div class="page-head"><div><h1>{{ o['product_name'] }}{% if o['quantity']>1 %} × {{ o['quantity'] }}{% endif %}</h1><p>订单创建于 {{ o['created_at']|dt }}</p></div>
   <a class="btn" href="{{ url_for('admin.orders_list') }}">返回订单列表</a></div>
 
-<section class="c" style="border-left:6px solid var(--{{ {'ok':'ok','bad':'err','warn':'warn','wait':'warn','off':'ink2'}[tone] }})">
+<section class="c live" id="live" data-oid="{{ o['id'] }}" data-interval="5000" data-needs="{{ 1 if needs_action else 0 }}">
+  <div class="live-head"><h2>实时进度</h2><div class="live-note"><span class="live-dot"></span><span id="live-time">页面会自动更新</span></div></div>
+  <ol class="stages" id="stages">{% for st in steps %}<li class="{{ st['state'] }}">{{ st['text'] }}</li>{% endfor %}{% if terminal %}<li class="terminal {{ terminal['tone'] }}">{{ terminal['text'] }}</li>{% endif %}</ol>
+  <dl class="kv live-kv">
+    <dt>付款状态</dt><dd><span class="chip {{ o['payment_status']|pay_tone }}" data-live="pay">{{ o['payment_status']|pay_text }}</span></dd>
+    <dt>Worker 状态</dt><dd data-live="worker">{{ worker_text }}</dd>
+    {% if o['product_type']=='api_recharge' %}<dt>上游状态</dt><dd data-live="upstream">{{ f['upstream_status']|up_text }}</dd>{% endif %}
+    <dt>当前阶段</dt><dd><span class="chip {{ stage[2] }}" data-live="stage">{{ stage[1] }}</span></dd>
+  </dl>
+  <div class="bar warn" id="live-changed" hidden style="margin:12px 0 0">订单状态有变化，下面可用的操作可能已经不同。<a href="">刷新页面</a>（你正在填写的内容不会被自动清除）。</div>
+</section>
+
+<section class="c" id="headline-card" style="border-left:6px solid var(--{{ {'ok':'ok','bad':'err','warn':'warn','wait':'warn','off':'ink2'}[tone] }})">
   <div class="tags" style="margin-bottom:8px"><span class="chip {{ o['payment_status']|pay_tone }}">{{ o['payment_status']|pay_text }}</span>
     {% if o['payment_status']=='paid' %}<span class="chip {{ f['status']|ful_tone }}">{{ f['status']|ful_text }}</span>{% endif %}
     {% if o['late_payment'] %}<span class="chip warn">迟到付款：订单关闭后才收到付款</span>{% endif %}</div>
-  <h2 style="font-size:19px">{{ headline }}</h2>
+  <h2 style="font-size:19px" data-live="headline">{{ headline }}</h2>
   {% if needs_action %}<form method="post" action="{{ url_for('admin.order_action', oid=o['id']) }}" style="margin-top:14px"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input type="hidden" name="action" value="retry"><button class="btn primary">{{ retry_label }}</button>
     <span class="help" style="margin-left:10px">不会重复发货或重复扣款，系统会先核对再处理。</span></form>{% endif %}
 </section>
@@ -76,3 +88,4 @@
   <dt>上游原始状态</dt><dd><code>{{ f['upstream_status'] or '-' }}</code></dd><dt>套餐标识</dt><dd><code>{{ o['recharge_plan_id'] }}</code></dd>{% endif %}
   <dt>错误代码</dt><dd><code>{{ f['reason_code'] or '-' }} {{ f['upstream_error_code'] }}</code></dd><dt>自动尝试次数</dt><dd>{{ f['attempts'] }}</dd></dl></div></details>
 {% endblock %}
+{% block scripts %}<script src="{{ asset_url('admin-live.js') }}" defer></script>{% endblock %}

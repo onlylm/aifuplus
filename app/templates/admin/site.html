@@ -1,6 +1,6 @@
-{% extends "admin/base.html" %}{% block title %}网站内容 · 管理后台{% endblock %}
-{% block body %}
-<div class="page-head"><div><h1>网站内容</h1><p>这里的内容会显示在前台。没填的地方，前台会自动隐藏对应的入口。</p></div></div>
+{% extends "admin/settings_base.html" %}{% set settings_tab = "site" %}{% block title %}网站内容 · 系统设置{% endblock %}
+{% block settings_body %}
+<p class="sub">这里的内容会显示在前台。没填的地方，前台会自动隐藏对应的入口。</p>
 <form method="post"><input type="hidden" name="_csrf" value="{{ csrf_token() }}">
 <section class="c"><h2>网站与客服</h2>
 <label class="f" for="sn">网站名称</label><input class="t" id="sn" name="site_name" value="{{ s['site_name'] }}" maxlength="40">

@@ -110,7 +110,7 @@ def _order_rank(conn, lookup_email, order_id):
 
 def search_orders(core, status="all", period="", date_from="", date_to="", plan_id="", region="",
                   order_no="", lookup_email="", recharge_email="", customer="all",
-                  page=1, page_size=PAGE_SIZE_DEFAULT):
+                  page=1, page_size=PAGE_SIZE_DEFAULT, q=""):
     """Admin order list. Returns {rows, total, page, page_size, tz_label}."""
     page = max(1, int(page or 1))
     page_size = max(1, min(100, int(page_size or PAGE_SIZE_DEFAULT)))
@@ -133,6 +133,18 @@ def search_orders(core, status="all", period="", date_from="", date_to="", plan_
     if region:
         where.append("upper(o.recharge_region)=?")
         args.append(region)
+
+    # One search box: an e-mail matches the contact e-mail OR the full recharge e-mail (exact, case-insensitive);
+    # anything else is treated as (part of) an order number.
+    q = (q or "").strip()
+    if q:
+        if "@" in q:
+            qe = norm_email(q)
+            where.append("(lower(trim(o.lookup_email))=? OR lower(trim(o.recharge_email))=?)")
+            args += [qe, qe]
+        else:
+            where.append("o.order_no LIKE ?")
+            args.append("%" + q + "%")
 
     order_no = (order_no or "").strip()
     if order_no:

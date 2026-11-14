@@ -1,7 +1,6 @@
-{% extends "admin/base.html" %}{% block title %}上游充值 · 管理后台{% endblock %}
-{% block body %}
-<div class="page-head"><div><h1>上游充值</h1><p>买家付款后，系统自动向上游下单充值。先在这里连接上游，再同步四种套餐在各地区的参考成本。</p></div>
-  <a class="btn" href="{{ url_for('admin.products') }}">管理套餐与定价</a></div>
+{% extends "admin/settings_base.html" %}{% set settings_tab = "upstream" %}{% block title %}上游充值 · 系统设置{% endblock %}
+{% block settings_body %}
+<p class="sub">买家付款后，系统自动向上游下单充值。先在这里连接上游，再同步四种套餐在各地区的参考成本。<a href="{{ url_for('admin.products') }}">去「商品与定价」管理套餐价格</a></p>
 
 <div class="grid" style="margin-bottom:20px">
   {% set tested = cfg['last_test_at'] > 0 %}

@@ -191,5 +191,6 @@ def test_page_hides_technical_words_and_keeps_old_sections(env):
     v = visible(html)
     for bad in ("manual_retail", "percentage", "plus-monthly", "planId", "JSON", "wallet", "paymentSource"):
         assert bad not in v, bad
-    for keep in ("汇率与成本同步", "立即同步", "重新计算售价", "卡密商品", "最近的价格记录"):
+    for keep in ("汇率与成本同步", "立即同步", "重新计算售价", "卡密商品", "价格异常"):
         assert keep in v, keep
+    assert "最近的价格记录" not in html and "→" not in v                         # the audit list is gone from the daily page

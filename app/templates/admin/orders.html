@@ -1,18 +1,56 @@
-{% extends "admin/base.html" %}{% block title %}订单 · 管理后台{% endblock %}
+{% extends "admin/base.html" %}{% block title %}订单管理 · 管理后台{% endblock %}
 {% block body %}
-<div class="page-head"><div><h1>订单</h1><p>点进订单可以看到付款、发货或充值的完整情况。</p></div></div>
-<section class="c">
-<div class="tabs">{% for k,l in views %}<a class="{{ 'on' if view==k }}" href="?view={{ k }}&q={{ q }}">{{ l }}</a>{% endfor %}</div>
-<form method="get" class="actions" style="margin-bottom:10px"><input type="hidden" name="view" value="{{ view }}"><input class="t" name="q" value="{{ q }}" placeholder="按订单号、买家邮箱搜索" style="max-width:340px"><button class="btn sm">搜索</button></form>
-{% for r in rows %}
-<div class="orow"><div><div class="t1">{{ r['product_name'] }}{% if r['quantity']>1 %} × {{ r['quantity'] }}{% endif %} · ¥{{ r['amount_cents']|yuan }}</div>
-  <div class="t2">{{ r['lookup_email'] or r['recharge_email'] }} · {{ r['created_at']|dt }}</div>
-  {% if r['payment_status']=='paid' and r['fstatus'] in ('blocked','failed','manual') %}<div class="t2" style="color:var(--err)">{{ r['freason'] or r['attention'] }}</div>{% endif %}</div>
-  <div class="tags"><span class="chip {{ r['payment_status']|pay_tone }}">{{ r['payment_status']|pay_text }}</span>
-    {% if r['payment_status']=='paid' %}<span class="chip {{ r['fstatus']|ful_tone }}">{{ r['fstatus']|ful_text }}</span>{% endif %}
-    {% if r['late_payment'] %}<span class="chip warn">迟到付款</span>{% endif %}</div>
-  <a class="btn sm" href="{{ url_for('admin.order_detail', oid=r['id']) }}">查看</a></div>
-{% else %}<div class="empty"><b>没有符合条件的订单</b>换一个筛选，或者等买家下单。</div>{% endfor %}
-<p>{% if page>1 %}<a href="?view={{ view }}&q={{ q }}&page={{ page-1 }}">上一页</a> {% endif %}第 {{ page }} 页{% if rows|length==50 %} <a href="?view={{ view }}&q={{ q }}&page={{ page+1 }}">下一页</a>{% endif %}</p>
+<div class="page-head"><div><h1>订单管理</h1><p>点进订单可以看到付款、充值进度和客户情况。时间按 {{ tz_label }} 显示。</p></div>
+  <div class="live-note" id="live-note" data-interval="9000"><span class="live-dot"></span><span>状态自动更新</span></div></div>
+
+<section class="c ord">
+<form method="get" class="ord-bar" id="ord-bar" action="{{ url_for('admin.orders_list') }}">
+  <label><span>套餐</span><select class="t" name="plan">{% for v,l in plan_options %}<option value="{{ v }}" {{ 'selected' if f['plan']==v }}>{{ l }}</option>{% endfor %}</select></label>
+  <label><span>地区</span><select class="t" name="region"><option value="">全部地区</option>{% for code,l in region_options %}<option value="{{ code }}" {{ 'selected' if f['region']==code }}>{{ l }}</option>{% endfor %}</select></label>
+  <label><span>时间</span><select class="t" name="period" id="ord-period">{% for v,l in period_options %}<option value="{{ v }}" {{ 'selected' if f['period']==v }}>{{ l }}</option>{% endfor %}</select></label>
+  <span class="ord-dates" id="ord-dates" {{ 'hidden' if f['period']!='custom' }}><label><span>开始日期</span><input class="t" type="date" name="from" value="{{ f['from'] }}"></label><label><span>结束日期</span><input class="t" type="date" name="to" value="{{ f['to'] }}"></label></span>
+  <label><span>客户类型</span><select class="t" name="customer">{% for v,l in customer_options %}<option value="{{ v }}" {{ 'selected' if f['customer']==v }}>{{ l }}</option>{% endfor %}</select></label>
+  <label><span>状态</span><select class="t" name="view">{% for k,l in views %}<option value="{{ k }}" {{ 'selected' if f['view']==k }}>{{ l }}</option>{% endfor %}</select></label>
+  <label class="ord-q"><span>搜索</span><input class="t" type="search" name="q" value="{{ f['q'] }}" placeholder="订单号、联系邮箱或完整充值邮箱"></label>
+  <span class="ord-btns"><button class="btn primary sm">查询</button>{% if filters_active %}<a class="btn sm" href="{{ url_for('admin.orders_list') }}">清除筛选</a>{% endif %}</span>
+</form>
+{% if date_error %}<div class="bar warn" style="margin:10px 0 0">{{ date_error }}</div>{% endif %}
+
+<div class="ord-sum"><span>共 <b>{{ ops_result['total'] }}</b> 笔订单</span>{% if filters_active %}<span class="muted">（已按筛选条件缩小范围）</span>{% endif %}
+  <span class="muted" id="attn-total" hidden></span></div>
+
+{% if rows %}
+<div class="ord-scroll"><table class="ord-table" id="ord-table">
+  <thead><tr><th>订单号 / 创建时间</th><th>套餐与地区</th><th>金额</th><th>联系邮箱</th><th>充值邮箱</th><th>付款</th><th>处理进度</th><th></th></tr></thead>
+  <tbody>
+  {% for r in rows %}{% set lv = r['live'] %}
+    <tr data-oid="{{ r['id'] }}" class="{{ 'attn' if lv['needs_attention'] }}">
+      <td><a class="mono" href="{{ url_for('admin.order_detail', oid=r['id']) }}">{{ r['order_no'] }}</a><div class="sub">{{ r['created_at_text'] }}</div></td>
+      <td><b>{{ r['plan_label'] }}</b><div class="sub">{{ r['region_label'] or '-' }}</div></td>
+      <td class="num">¥{{ r['amount_cents']|yuan }}</td>
+      <td>{{ r['lookup_email'] or '-' }}{% if r['lookup_order_count'] > 1 %}<div class="sub">累计 {{ r['lookup_order_count'] }} 单{% if r['lookup_order_rank'] and r['lookup_order_rank'] > 1 %} · 复购{% endif %}</div>{% endif %}{% if r['contact'] %}<div class="sub">联系方式 {{ r['contact'] }}</div>{% endif %}</td>
+      <td>{{ r['recharge_email'] or '-' }}</td>
+      <td><span class="chip {{ lv['payment_tone'] }}" data-live="pay">{{ lv['payment_text'] }}</span></td>
+      <td><span class="chip {{ lv['tone'] }}" data-live="stage">{{ lv['stage_text'] }}</span>
+        <div class="sub bad" data-live="reason" {{ 'hidden' if not lv['reason'] }}>{{ lv['reason'] }}</div></td>
+      <td><a class="btn sm {{ 'primary' if lv['needs_attention'] }}" href="{{ url_for('admin.order_detail', oid=r['id']) }}" data-live="open">{{ '去处理' if lv['needs_attention'] else '查看' }}</a></td>
+    </tr>
+  {% endfor %}
+  </tbody></table></div>
+{% elif filters_active %}
+<div class="empty"><b>没有符合当前筛选条件的订单</b>系统里一共有 {{ total_all }} 笔订单，只是没有一笔符合你选的条件。试试放宽条件，或点「清除筛选」。<br><br><a class="btn" href="{{ url_for('admin.orders_list') }}">清除筛选</a></div>
+{% elif total_all == 0 %}
+<div class="empty"><b>还没有订单</b>买家下单后，订单会出现在这里。</div>
+{% else %}
+<div class="empty"><b>这一页没有订单</b>页码超出范围，请回到第一页。<br><br><a class="btn" href="{{ url_for('admin.orders_list') }}">回到第一页</a></div>
+{% endif %}
+
+{% if ops_result['pages'] > 1 %}
+<nav class="pager" aria-label="翻页">
+  {% if page > 1 %}<a class="btn sm" href="{{ url_for('admin.orders_list', page=page-1, **kept) }}">上一页</a>{% else %}<span class="btn sm" aria-disabled="true">上一页</span>{% endif %}
+  <span>第 {{ page }} / {{ ops_result['pages'] }} 页</span>
+  {% if page < ops_result['pages'] %}<a class="btn sm" href="{{ url_for('admin.orders_list', page=page+1, **kept) }}">下一页</a>{% else %}<span class="btn sm" aria-disabled="true">下一页</span>{% endif %}
+</nav>{% endif %}
 </section>
 {% endblock %}
+{% block scripts %}<script src="{{ asset_url('admin-live.js') }}" defer></script>{% endblock %}

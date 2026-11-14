@@ -1,6 +1,6 @@
-{% extends "admin/base.html" %}{% block title %}支付宝收款 · 管理后台{% endblock %}
-{% block body %}
-<div class="page-head"><div><h1>支付宝收款</h1><p>买家通过支付宝扫码付款，钱直接进入你的支付宝商户账户。</p></div></div>
+{% extends "admin/settings_base.html" %}{% set settings_tab = "pay" %}{% block title %}支付与收款 · 系统设置{% endblock %}
+{% block settings_body %}
+<p class="sub">买家通过支付宝扫码付款，钱直接进入你的支付宝商户账户。</p>
 <div class="grid" style="margin-bottom:20px">
   <div class="stat"><div class="k">收款状态</div><div class="v"><span class="dot {{ 'ok' if cfg['enabled'] else 'bad' }}"></span>{{ '已启用' if cfg['enabled'] else '未启用' }}</div></div>
   <div class="stat"><div class="k">当前环境</div><div class="v">{{ '沙箱测试' if cfg['mode']=='sandbox' else '正式收款' }}</div><div class="h">{{ '沙箱不会真实扣款' if cfg['mode']=='sandbox' else '买家付款会真实到账' }}</div></div>

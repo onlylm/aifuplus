@@ -6,6 +6,7 @@ from flask import Blueprint, abort, current_app, flash, jsonify, redirect, rende
 
 from . import alipay as ali
 from . import catalog, fulfillment, ops, payments, pricing, pricing_service, settings, site, upstream_sync
+from . import humanize
 from .humanize import explain  # noqa: F401
 
 bp = Blueprint("admin", __name__)
@@ -73,6 +74,17 @@ def dashboard():
                            anomalies=_one("SELECT COUNT(*) FROM plan_variants WHERE anomaly!=''") + (1 if pricing_service.get_settings(core().conn)["fx_pending_micro"] else 0),
                            all_done=all(s["done"] for s in steps), recharge_products=recharge_products, card_products=card_products,
                            ops_overview=ops_overview, ops_period=period, tz_label=ops.TZ_LABEL)
+
+
+# ---- system settings: one entry in the sidebar, three tabs that keep their own URLs / forms ----------
+SETTINGS_ENDPOINTS = ("admin.settings_home", "admin.alipay_config", "admin.alipay_test", "admin.upstream_config", "admin.upstream_test",
+                      "admin.upstream_sync_plans", "admin.site_config")
+
+
+@bp.route("/settings")
+@admin_required
+def settings_home():
+    return redirect(url_for("admin.alipay_config"))
 
 
 # ---- Alipay ---------------------------------------------------------------
@@ -221,8 +233,8 @@ def products():
     if active not in pricing_service.ALLOWED:
         active = next((c["plan_id"] for c in cards if c["total"]), cards[0]["plan_id"])
     return render_template("admin/products.html", rows=rows, stocks=stocks, cards=cards, fx=fxv, stale=pricing_service.staleness(core()),
-                           audit=pricing_service.recent_audit(core().conn, 12), rounding_text=pricing.ROUNDING_TEXT,
-                           mode_text=pricing.MODE_TEXT, active=active, open_vid=request.args.get("edit", type=int),
+                           rounding_text=pricing.ROUNDING_TEXT, mode_text=pricing.MODE_TEXT,
+                           anomaly_total=sum(c["anomalies"] for c in cards) + (1 if fxv["pending"] else 0), active=active, open_vid=request.args.get("edit", type=int),
                            upstream_ready=settings.get_upstream(core())["api_key_enc"] != "")
 
 
@@ -463,43 +475,183 @@ def card_void(cid):
 
 # ---- orders ---------------------------------------------------------------
 VIEWS = [("all", "全部"), ("unpaid", "待付款"), ("processing", "处理中"), ("attention", "需要处理"), ("done", "已完成"), ("closed", "已关闭")]
-VIEW_SQL = {
-    "unpaid": "o.payment_status='unpaid'",
-    "processing": "o.payment_status='paid' AND f.status IN ('pending','processing')",
-    "attention": "o.payment_status='paid' AND f.status IN ('blocked','failed','manual')",
-    "done": "f.status='delivered'",
-    "closed": "o.payment_status='closed'",
-}
+PLAN_OPTIONS = [("", "全部套餐")] + [(pid, label.replace("ChatGPT ", "")) for pid, label, _ in pricing_service.PLANS]
+PERIOD_OPTIONS = [("", "全部时间"), ("today", "今天"), ("yesterday", "昨天"), ("7d", "近 7 天"), ("30d", "近 30 天"), ("custom", "自定义日期")]
+CUSTOMER_OPTIONS = [("all", "全部客户"), ("first", "首次下单"), ("repeat", "复购客户")]
+PAGE_SIZE = 30
+
+
+def _region_options():
+    """Regions that exist in the current pricing table (plus any region already used by an order), Chinese names only."""
+    c = core().conn
+    codes = {r[0] for r in c.execute("SELECT DISTINCT region_code FROM plan_variants")}
+    codes |= {r[0] for r in c.execute("SELECT DISTINCT recharge_region FROM orders WHERE recharge_region!=''")}
+    from .humanize import region_name
+    return sorted(((code, region_name(code)) for code in codes if code), key=lambda x: x[1])
+
+
+def _order_filters():
+    """Read + sanitise the filter bar from the query string. Returns (filters, search kwargs, date_error)."""
+    a = request.args
+    view = a.get("view", "all")
+    f = {"view": view if view in dict(VIEWS) else "all",
+         "plan": a.get("plan", "") if a.get("plan", "") in dict(PLAN_OPTIONS) else "",
+         "region": a.get("region", "").strip().upper()[:8],
+         "period": a.get("period", "") if a.get("period", "") in dict(PERIOD_OPTIONS) else "",
+         "from": a.get("from", "").strip()[:10], "to": a.get("to", "").strip()[:10],
+         "customer": a.get("customer", "all") if a.get("customer", "all") in dict(CUSTOMER_OPTIONS) else "all",
+         "q": a.get("q", "").strip()[:120]}
+    kw = {"status": f["view"], "plan_id": f["plan"], "region": f["region"], "customer": f["customer"], "q": f["q"],
+          "period": "", "date_from": "", "date_to": ""}
+    date_error = ""
+    if f["period"] == "custom":
+        if f["from"] and f["to"]:
+            kw["date_from"], kw["date_to"] = f["from"], f["to"]
+        else:
+            date_error = "自定义日期需要同时选择开始日期和结束日期，已先显示全部时间。"
+    elif f["period"]:
+        kw["period"] = f["period"]
+    return f, kw, date_error
 
 
 @bp.route("/orders")
 @admin_required
 def orders_list():
-    view = request.args.get("view", "all")
-    q = request.args.get("q", "").strip()
+    f, kw, date_error = _order_filters()
     page = max(1, request.args.get("page", 1, type=int))
-    result = ops.search_orders(
-        core(),
-        status=view if view != "all" else "all",
-        period=request.args.get("period", ""),
-        date_from=request.args.get("from", ""),
-        date_to=request.args.get("to", ""),
-        plan_id=request.args.get("plan", ""),
-        region=request.args.get("region", ""),
-        order_no=q if q and not ("@" in q) else request.args.get("order_no", ""),
-        lookup_email=request.args.get("lookup_email", "") or (q if "@" in q else ""),
-        recharge_email=request.args.get("recharge_email", ""),
-        customer=request.args.get("customer", "all"),
-        page=page,
-    )
-    # Keep template compatibility: sqlite-like keys used by admin/orders.html
-    rows = []
-    for item in result["rows"]:
-        o = core().conn.execute("SELECT o.*, f.status AS fstatus, f.reason AS freason FROM orders o"
-                                " JOIN fulfillments f ON f.order_id=o.id WHERE o.id=?", (item["id"],)).fetchone()
-        rows.append(o)
-    return render_template("admin/orders.html", rows=rows, views=VIEWS, view=view, q=q, page=page,
-                           ops_result=result, tz_label=ops.TZ_LABEL)
+    try:
+        result = ops.search_orders(core(), page=page, page_size=PAGE_SIZE, **kw)
+    except ops.OpsError as e:                                   # e.g. an end date before the start date
+        date_error = str(e)
+        kw.update(period="", date_from="", date_to="")
+        result = ops.search_orders(core(), page=page, page_size=PAGE_SIZE, **kw)
+    live = _live_rows([r["id"] for r in result["rows"]])
+    for r in result["rows"]:
+        r["live"] = live[r["id"]]
+    kept = {k: v for k, v in f.items() if v and v not in ("all",) and not (k in ("from", "to") and f["period"] != "custom")}
+    if date_error:
+        kept.pop("from", None); kept.pop("to", None)
+        if f["period"] == "custom":
+            kept.pop("period", None)
+    total_all = _one("SELECT COUNT(*) FROM orders")
+    return render_template("admin/orders.html", ops_result=result, rows=result["rows"], f=f, kept=kept, filters_active=bool(kept), date_error=date_error,
+                           views=VIEWS, plan_options=PLAN_OPTIONS, period_options=PERIOD_OPTIONS, customer_options=CUSTOMER_OPTIONS,
+                           region_options=_region_options(), total_all=total_all, page=result["page"], tz_label=ops.TZ_LABEL)
+
+
+# ---- read-only live status (display fields only; polling never submits anything upstream) -----------
+STEPS = [("unpaid", "等待付款"), ("paid", "已付款"), ("worker", "等待 Worker"), ("submitted", "已提交上游"), ("upstream", "上游处理中"), ("done", "充值完成")]
+
+
+def _live_stage(o, f):
+    """The real stage of an order, in the operator's words. Pure function of stored state."""
+    recharge = o["product_type"] == "api_recharge"
+    if o["payment_status"] == "closed":
+        return "closed", "已关闭", "off"
+    if o["payment_status"] == "unpaid":
+        return "unpaid", "等待付款", "wait"
+    st = f["status"]
+    if st == "delivered":
+        return "done", ("充值完成" if recharge else "发货完成"), "ok"
+    if st in ("blocked", "failed", "manual"):
+        return "attention", "需要人工处理", "bad"
+    if not recharge or st == "none":
+        return "paid", "已付款", "wait"
+    if f["upstream_task_id"]:
+        up = (f["upstream_status"] or "").lower()
+        return (("submitted", "已提交上游") if up in ("", "queued") else ("upstream", "上游处理中")) + ("wait",)
+    return "worker", "等待 Worker", "wait"
+
+
+def _worker_text(o, f):
+    if o["payment_status"] != "paid":
+        return "还没到充值环节"
+    if o["product_type"] != "api_recharge":
+        return "卡密发货由系统直接完成"
+    if f["status"] == "delivered":
+        return "已完成"
+    if f["status"] in ("blocked", "failed", "manual"):
+        return "已停止自动处理，需要人工处理"
+    if f["upstream_task_id"]:
+        return "Worker 已提交上游"
+    if f["status"] == "processing":
+        return "Worker 正在提交"
+    return "等待 Worker 领取" + ("（已尝试 %d 次）" % f["attempts"] if f["attempts"] else "")
+
+
+def _live_rows(ids):
+    """{order_id: display dict} for the given ids, one query."""
+    ids = [int(i) for i in ids][:100]
+    if not ids:
+        return {}
+    rows = core().conn.execute(
+        "SELECT o.id, o.payment_status, o.product_type, f.status AS fstatus, f.upstream_task_id, f.upstream_status, f.attempts, f.reason"
+        " FROM orders o JOIN fulfillments f ON f.order_id=o.id WHERE o.id IN (%s)" % ",".join("?" * len(ids)), ids).fetchall()
+    out = {}
+    for r in rows:
+        o = {"payment_status": r["payment_status"], "product_type": r["product_type"]}
+        f = {"status": r["fstatus"], "upstream_task_id": r["upstream_task_id"], "upstream_status": r["upstream_status"], "attempts": r["attempts"]}
+        key, text, tone = _live_stage(o, f)
+        needs = r["payment_status"] == "paid" and r["fstatus"] in ("blocked", "failed", "manual")
+        out[r["id"]] = {"id": r["id"], "stage": key, "stage_text": text, "tone": tone, "needs_attention": needs,
+                        "payment_text": humanize.PAY_TEXT.get(r["payment_status"], ""), "payment_tone": humanize.PAY_TONE.get(r["payment_status"], "off"),
+                        "fulfillment_text": humanize.FUL_TEXT.get(r["fstatus"], "") if r["payment_status"] == "paid" else "",
+                        "fulfillment_tone": humanize.FUL_TONE.get(r["fstatus"], "off"), "reason": (r["reason"] or "") if needs else ""}
+    return out
+
+
+@bp.route("/api/orders/live")
+@admin_required
+def api_orders_live():
+    ids = [int(x) for x in request.args.get("ids", "").split(",") if x.strip().isdigit()]
+    resp = jsonify(ok=True, rows=_live_rows(ids), attention_total=_one(
+        "SELECT COUNT(*) FROM orders o JOIN fulfillments f ON f.order_id=o.id WHERE o.payment_status='paid' AND f.status IN ('blocked','failed','manual')"))
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+def _steps_payload(o, f):
+    key, text, tone = _live_stage(o, f)
+    order = [k for k, _ in STEPS]
+    terminal = None
+    if key == "closed":
+        current, terminal = 0, {"text": "已关闭", "tone": "off"}
+        steps = [{"text": STEPS[0][1], "state": "done"}]
+        return steps, terminal
+    if key == "attention":
+        reached = "worker" if not f["upstream_task_id"] else ("submitted" if (f["upstream_status"] or "").lower() in ("", "queued") else "upstream")
+        current = order.index(reached)
+        terminal = {"text": "需要人工处理", "tone": "bad"}
+        return [{"text": t, "state": "done"} for k, t in STEPS[:current + 1]], terminal
+    if key == "paid":
+        key = "paid"
+    current = order.index(key) if key in order else 1
+    steps = []
+    for i, (k, t) in enumerate(STEPS):
+        steps.append({"text": t, "state": "done" if (i < current or key == "done") else ("current" if i == current else "pending")})
+    return steps, terminal
+
+
+@bp.route("/api/orders/<int:oid>/live")
+@admin_required
+def api_order_live(oid):
+    c = core().conn
+    o = c.execute("SELECT id, payment_status, product_type, paid_at, closed_at FROM orders WHERE id=?", (oid,)).fetchone()
+    if not o:
+        abort(404)
+    f = c.execute("SELECT status, reason, attempts, upstream_task_id, upstream_status, delivered_at FROM fulfillments WHERE order_id=?", (oid,)).fetchone()
+    key, text, tone = _live_stage(o, f)
+    steps, terminal = _steps_payload(o, f)
+    htone, headline = _headline(o, f)
+    needs = o["payment_status"] == "paid" and f["status"] in ("blocked", "failed", "manual")
+    resp = jsonify(ok=True, id=oid, stage={"key": key, "text": text, "tone": tone}, steps=steps, terminal=terminal,
+                   payment={"text": humanize.PAY_TEXT.get(o["payment_status"], ""), "tone": humanize.PAY_TONE.get(o["payment_status"], "off")},
+                   fulfillment={"text": humanize.FUL_TEXT.get(f["status"], "") if o["payment_status"] == "paid" else "", "tone": humanize.FUL_TONE.get(f["status"], "off")},
+                   worker_text=_worker_text(o, f), upstream_text=humanize.UP_TEXT.get((f["upstream_status"] or "").lower(), "") if o["product_type"] == "api_recharge" else "",
+                   headline=headline, headline_tone=htone, needs_action=needs, attention_reason=(f["reason"] or "") if needs else "",
+                   paid_at_text=ops.format_ts(o["paid_at"]) or "", completed_at_text=ops.format_ts(f["delivered_at"]) or "", closed_at_text=ops.format_ts(o["closed_at"]) or "")
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 def _headline(o, f):
@@ -532,7 +684,9 @@ def order_detail(oid):
     recharge_acct = ops.recharge_account_summary(core(), o["recharge_email"])
     timeline = ops.order_timeline(core(), oid)
     lookup_rank = ops._order_rank(c, o["lookup_email"], oid)
-    return render_template("admin/order_detail.html", o=o, f=f, pay=pay, events=events, cards=cards, tone=tone,
+    steps, terminal = _steps_payload(o, f)
+    return render_template("admin/order_detail.html", o=o, f=f, pay=pay, stage=_live_stage(o, f), steps=steps, terminal=terminal,
+                           worker_text=_worker_text(o, f), events=events, cards=cards, tone=tone,
                            headline=headline, needs_action=needs_action,
                            retry_label="重新发货" if o["product_type"] == "card" else "重新尝试充值",
                            can_manual=o["product_type"] == "api_recharge" and o["payment_status"] == "paid" and f["status"] in ("blocked", "failed", "manual"),

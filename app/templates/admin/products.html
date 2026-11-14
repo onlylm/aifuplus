@@ -17,6 +17,7 @@
   <div class="stat"><div class="k">上游成本最近同步</div><div class="v" style="font-size:20px">{{ fx['raw']['upstream_last_ok_at']|dt if fx['raw']['upstream_last_ok_at'] else '还没有同步' }}</div>
     <div class="h">{{ fx['raw']['upstream_last_error'] or '同步正常' }}</div></div>
   <div class="stat"><div class="k">汇率最近同步</div><div class="v" style="font-size:20px">{{ fx['auto_at']|dt if fx['auto_at'] else '还没有同步' }}</div><div class="h">{{ fx['error'] or '同步正常' }}</div></div>
+  <div class="stat"><div class="k">价格异常</div><div class="v" style="color:{{ 'var(--err)' if anomaly_total else 'var(--ok)' }}">{{ anomaly_total }}</div><div class="h">{{ '有价格等待你确认' if anomaly_total else '没有异常' }}</div></div>
 </div>
 <div class="actions" style="margin-top:16px">
   <form method="post" action="{{ url_for('admin.pricing_sync_now') }}" class="inline"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><button class="btn primary">立即同步</button></form>
@@ -148,7 +149,5 @@
     <div class="row"><a class="btn sm" href="{{ url_for('admin.product_edit', pid=p['id']) }}">编辑</a>{% if p['type']=='card' %}<a class="btn sm" href="{{ url_for('admin.cards', pid=p['id']) }}">管理卡密</a>{% endif %}</div></div>{% endfor %}</div>
 {% else %}<div class="empty"><b>还没有卡密商品</b>需要卖卡密的话，点右上角「创建卡密商品」。</div>{% endif %}</section>
 
-<section class="c"><h2>最近的价格记录</h2><p class="sub">同步和调价都会留下记录，方便追溯。</p>
-<ul class="audit">{% for a in audit %}<li>{{ a['message'] }}<br><small>{{ a['created_at']|dt }} · {{ '系统自动' if a['actor']=='system' else a['actor'] }}</small></li>{% else %}<li class="help">还没有记录。</li>{% endfor %}</ul></section>
 {% endblock %}
 {% block scripts %}<script src="{{ asset_url('admin-pricing.js') }}" defer></script>{% if open_vid %}<script>window.PP_OPEN={{ open_vid }};</script>{% endif %}{% endblock %}

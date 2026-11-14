@@ -1,0 +1,11 @@
+{% extends "admin/base.html" %}
+{% block body %}
+<div class="page-head"><div><h1>系统设置</h1><p>支付收款、上游充值和网站内容都在这里。点下面的标签切换，刷新页面也会停留在当前标签。</p></div></div>
+{% set tab = settings_tab %}
+<div class="set-tabs" role="tablist" aria-label="系统设置">
+  <a role="tab" href="{{ url_for('admin.alipay_config') }}" class="{{ 'on' if tab=='pay' }}" aria-selected="{{ 'true' if tab=='pay' else 'false' }}">支付与收款</a>
+  <a role="tab" href="{{ url_for('admin.upstream_config') }}" class="{{ 'on' if tab=='upstream' }}" aria-selected="{{ 'true' if tab=='upstream' else 'false' }}">上游充值</a>
+  <a role="tab" href="{{ url_for('admin.site_config') }}" class="{{ 'on' if tab=='site' }}" aria-selected="{{ 'true' if tab=='site' else 'false' }}">网站内容</a>
+</div>
+<div class="set-body" role="tabpanel">{% block settings_body %}{% endblock %}</div>
+{% endblock %}
